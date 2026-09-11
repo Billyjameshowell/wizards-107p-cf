@@ -1,6 +1,11 @@
-import type { Book } from "@shared/book";
-import { emptySpendState, etDateFrom, rolloverSpend, type SpendState } from "@shared/guardrails";
-import seedBook from "../../data/seed-book.json";
+import type { Book } from "../src/shared/book";
+import {
+  emptySpendState,
+  etDateFrom,
+  rolloverSpend,
+  type SpendState,
+} from "../src/shared/guardrails";
+import seedBook from "../data/seed-book.json" with { type: "json" };
 
 const BOOK_KEY = "book";
 const SPEND_KEY = "spend";

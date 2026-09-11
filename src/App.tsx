@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Book } from "@shared/book";
-import { TicketBook } from "./components/TicketBook";
+import { TicketBook } from "./components/TicketBook.tsx";
 
 export default function App() {
   const [book, setBook] = useState<Book | null>(null);

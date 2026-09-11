@@ -6,7 +6,15 @@ The page lists every home game with Sit vs Sell, the advised ask from the latest
 
 **List nothing until Billy says so.** This site tracks status. It does not post listings to Ticketmaster.
 
-This is a **Cloudflare Workers** full-stack app (Vite + React + Workers Assets). Morning cron writes the live book to D1/KV. The UI reads `/api/book`. No Vercel. No git commit is required to refresh prices.
+This is a **Cloudflare Workers** full-stack app scaffolded with the official CLI, then filled in:
+
+```bash
+npm create cloudflare@latest -- . --framework=react
+```
+
+That is React + Vite + a Workers API + the Cloudflare Vite plugin ([docs](https://developers.cloudflare.com/workers/framework-guides/web-apps/react/)). Layout: `src/` (React), `worker/index.ts` (API), `wrangler.jsonc`. shadcn/ui, D1/KV, cron, and the SeatData/Apify adapters sit on top of that scaffold.
+
+Morning cron writes the live book to D1/KV. The UI reads `/api/book`. No Vercel. No git commit is required to refresh prices.
 
 Paid market pulls stay **off** until you flip flags.
 

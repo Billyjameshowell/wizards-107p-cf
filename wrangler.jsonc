@@ -1,43 +1,46 @@
+/**
+ * Official C3 React + Vite + Workers config, plus D1/KV, cron, and SAFE flags.
+ * https://developers.cloudflare.com/workers/framework-guides/web-apps/react/
+ */
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "wizards-107p-cf",
-  "main": "./src/worker/index.ts",
-  "compatibility_date": "2026-09-11",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": {
-    "enabled": true
-  },
-  "upload_source_maps": true,
-  "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
-  "triggers": {
-    "crons": ["0 12 * * *"]
-  },
-  "vars": {
-    "INGEST_ENABLED": "false",
-    "DRY_RUN": "true",
-    "SOURCES": "seatdata,apify",
-    "APIFY_INCLUDE_LISTINGS": "false",
-    "SEATDATA_BASE_URL": "https://api.seatdata.io",
-    "SEATDATA_MAX_PULLS_PER_RUN": "20",
-    "SEATDATA_MAX_PULLS_PER_ET_DAY": "25",
-    "APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
-    "APIFY_MAX_EVENTS": "50"
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "wizards-107p",
-      "database_id": "00000000-0000-0000-0000-000000000001",
-      "migrations_dir": "migrations"
-    }
-  ],
-  "kv_namespaces": [
-    {
-      "binding": "BOOK",
-      "id": "00000000-0000-0000-0000-000000000002"
-    }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wizards-107p-cf",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-09-11",
+	"assets": {
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"]
+	},
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"triggers": {
+		"crons": ["0 12 * * *"]
+	},
+	"vars": {
+		"INGEST_ENABLED": "false",
+		"DRY_RUN": "true",
+		"SOURCES": "seatdata,apify",
+		"APIFY_INCLUDE_LISTINGS": "false",
+		"SEATDATA_BASE_URL": "https://api.seatdata.io",
+		"SEATDATA_MAX_PULLS_PER_RUN": "20",
+		"SEATDATA_MAX_PULLS_PER_ET_DAY": "25",
+		"APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
+		"APIFY_MAX_EVENTS": "50"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "wizards-107p",
+			"database_id": "00000000-0000-0000-0000-000000000001",
+			"migrations_dir": "migrations"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "BOOK",
+			"id": "00000000-0000-0000-0000-000000000002"
+		}
+	]
 }

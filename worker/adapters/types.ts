@@ -1,4 +1,4 @@
-import type { Game } from "@shared/book";
+import type { Game } from "../../src/shared/book";
 
 export type MarketPoint = {
   date: string;

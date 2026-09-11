@@ -1,9 +1,9 @@
-import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "@shared/book";
-import { etDateFrom, parseFlags, type Flags } from "@shared/guardrails";
+import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
+import { etDateFrom, parseFlags, type Flags } from "../src/shared/guardrails";
 import { runApify } from "./adapters/apify";
 import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
-import { loadLiveBook, writeBook, readSpend, writeSpend } from "./store";
+import { loadLiveBook, readSpend, writeBook, writeSpend } from "./store";
 
 export type IngestTrigger = "cron" | "http";
 
@@ -94,7 +94,10 @@ export async function runIngest(
       dryRun: true,
       skippedReason: "dry_run",
       sources: Object.fromEntries(
-        flags.sources.map((source) => [source, { attempted: false, paid: false, aborted: "dry_run" }]),
+        flags.sources.map((source) => [
+          source,
+          { attempted: false, paid: false, aborted: "dry_run" },
+        ]),
       ),
     };
     await writeSpend(env, spend);

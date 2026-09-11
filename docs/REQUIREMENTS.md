@@ -13,7 +13,7 @@ The site **does not list tickets**. It tracks status. Nothing is posted to Ticke
 
 ## Stack
 
-- Cloudflare Workers full-stack (Vite + React + Workers Assets), not Vercel, not Pages-only.
+- Cloudflare Workers full-stack from `npm create cloudflare@latest -- . --framework=react` (React + Vite + Workers API + Vite plugin). Not Vercel, not Pages-only.
 - React + Vite + TypeScript.
 - shadcn/ui (`npx shadcn@latest init -d --base radix`) with table, card, and button.
 - Durable store: D1 (`store` table) is source of truth; KV (`BOOK`) caches the same JSON for live reads.

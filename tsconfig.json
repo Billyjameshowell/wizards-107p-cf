@@ -6,9 +6,10 @@
     { "path": "./tsconfig.worker.json" }
   ],
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/react-app/*"],
+      "@/*": ["./src/*"],
       "@shared/*": ["./src/shared/*"]
     }
   }

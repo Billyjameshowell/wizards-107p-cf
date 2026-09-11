@@ -6,7 +6,7 @@ import {
   parseFlags,
   recordPaidAttempt,
   type SpendState,
-} from "@shared/guardrails";
+} from "../../src/shared/guardrails";
 import { dateFromLocal, type AdapterContext, type AdapterResult, type MarketPoint } from "./types";
 
 const ACTOR = "lentic_clockss~seatgeek-scraper";

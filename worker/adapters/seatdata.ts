@@ -1,7 +1,7 @@
 import {
   goingAskFromListings,
   type CompListing,
-} from "@shared/book";
+} from "../../src/shared/book";
 import {
   canStartPaidSource,
   canTakeSeatDataPull,
@@ -11,7 +11,7 @@ import {
   recordPaidAttempt,
   recordSeatDataPull,
   type SpendState,
-} from "@shared/guardrails";
+} from "../../src/shared/guardrails";
 import type { AdapterContext, AdapterResult, MarketPoint } from "./types";
 
 type SearchEvent = {
