@@ -66,12 +66,11 @@ npx wrangler secret put SEATDATA_API_KEY
 npx wrangler secret put APIFY_TOKEN
 ```
 
-5. Deploy:
+5. Deploy (official C3 script):
 
 ```bash
-npx wrangler deploy
-# or
 npm run deploy
+# same as: npm run build && wrangler deploy
 ```
 
 6. Open the `*.workers.dev` URL. The book UI loads from `/api/book`.
