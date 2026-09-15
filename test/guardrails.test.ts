@@ -11,6 +11,7 @@ import {
   etDateFrom,
   isAbortHttpStatus,
   isCircuitOpen,
+  isUsableCredential,
   openCircuit,
   parseBooleanFlag,
   parseFlags,
@@ -144,6 +145,16 @@ describe("paid-call gates", () => {
   });
 });
 
+describe("credential readiness", () => {
+  it("rejects empty and obvious placeholder credentials", () => {
+    expect(isUsableCredential(undefined)).toBe(false);
+    expect(isUsableCredential("  ")).toBe(false);
+    expect(isUsableCredential("change-me-local-only")).toBe(false);
+    expect(isUsableCredential("your-api-key")).toBe(false);
+    expect(isUsableCredential("real-token-value")).toBe(true);
+  });
+});
+
 describe("SeatData pull caps", () => {
   it("stops at 20 pulls per run and 25 per ET day", () => {
     expect(
@@ -189,6 +200,7 @@ describe("Apify cheap-list defaults", () => {
     const input = apifyActorInput(safeFlags);
     expect(input.includeListings).toBe(false);
     expect(input.maxResults).toBe(50);
+    expect(input.maxPages).toBe(2);
     expect(input.mode).toBe("performer");
     expect(input.performerSlug).toBe("washington-wizards");
     const listingsOn = apifyActorInput(
@@ -231,4 +243,8 @@ describe("empty spend", () => {
     expect(spend.sources.seatdata.circuitOpenEtDate).toBeNull();
     expect(spend.sources.apify.pullsToday).toBe(0);
   });
+});
+
+it("rejects the deployed disabled credential placeholder", () => {
+  expect(isUsableCredential("NOT_CONFIGURED_INGEST_DISABLED")).toBe(false);
 });

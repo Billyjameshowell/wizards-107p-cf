@@ -1,9 +1,15 @@
 import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
-import { etDateFrom, parseFlags, type Flags } from "../src/shared/guardrails";
+import { etDateFrom, openCircuit, parseFlags, type Flags } from "../src/shared/guardrails";
 import { runApify } from "./adapters/apify";
 import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
-import { loadLiveBook, readSpend, writeBook, writeSpend } from "./store";
+import {
+  loadLiveBook,
+  readSpend,
+  writeBookAndHistory,
+  writeSpend,
+  type PriceHistorySnapshot,
+} from "./store";
 
 export type IngestTrigger = "cron" | "http";
 
@@ -17,14 +23,34 @@ export type IngestSummary = {
   sources: AdapterResult[];
 };
 
-function applyPoints(game: Game, points: MarketPoint[]): Game {
+function pointHasMetrics(point: MarketPoint): boolean {
+  return Object.keys(point).some((key) => key !== "date");
+}
+
+function applyPoints(
+  game: Game,
+  points: MarketPoint[],
+  source: AdapterResult["source"],
+  now: Date,
+): Game {
   const next = { ...game };
   for (const point of points) {
     if (point.date !== game.date) continue;
+    if (pointHasMetrics(point)) {
+      next.market_updated_at_et = formatEtStamp(now);
+    }
     if (point.advisedAsk != null) next.advised_ask = point.advisedAsk;
     if (point.getIn != null) next.market_get_in = point.getIn;
     if (point.median != null) next.market_median = point.median;
     if (point.listingCount != null) next.listing_count = point.listingCount;
+    if (source === "seatdata" && point.marketDetails != null) {
+      // A comparison is meaningful only when both observations came from
+      // SeatData. Preserve the prior current snapshot before replacing it.
+      next.market_previous_details = next.market_details?.source === "seatdata"
+        ? next.market_details
+        : null;
+      next.market_details = point.marketDetails;
+    }
     if (next.advised_ask == null && point.getIn != null) {
       next.advised_ask = point.getIn;
     }
@@ -33,15 +59,25 @@ function applyPoints(game: Game, points: MarketPoint[]): Game {
 }
 
 function mergeBook(book: Book, results: AdapterResult[], now: Date): Book {
-  const byDate = new Map<string, MarketPoint[]>();
+  const bySourceDate = new Map<AdapterResult["source"], Map<string, MarketPoint[]>>();
   for (const result of results) {
     for (const point of result.points) {
-      const list = byDate.get(point.date) ?? [];
-      list.push(point);
-      byDate.set(point.date, list);
+      const byDate = bySourceDate.get(result.source) ?? new Map<string, MarketPoint[]>();
+      // A provider should emit one point per game, but keeping the last point
+      // makes duplicate rows in one run unable to masquerade as history from
+      // a prior run when selecting the book's previous snapshot.
+      byDate.set(point.date, [point]);
+      bySourceDate.set(result.source, byDate);
     }
   }
-  const games = book.games.map((game) => applyPoints(game, byDate.get(game.date) ?? []));
+  const games = book.games.map((game) => {
+    let next = game;
+    for (const result of results) {
+      const points = bySourceDate.get(result.source)?.get(game.date) ?? [];
+      next = applyPoints(next, points, result.source, now);
+    }
+    return next;
+  });
   return recomputeBookTotals({
     ...book,
     games,
@@ -50,14 +86,44 @@ function mergeBook(book: Book, results: AdapterResult[], now: Date): Book {
   });
 }
 
+function historyFromResults(
+  book: Book,
+  results: AdapterResult[],
+  capturedAt: string,
+): PriceHistorySnapshot[] {
+  const gameDates = new Set(book.games.map((game) => game.date));
+  const unique = new Map<string, PriceHistorySnapshot>();
+  for (const result of results) {
+    for (const point of result.points) {
+      // Adapter points represent completed provider observations. A date-only
+      // object is not an observation and must not create a false refresh.
+      if (!gameDates.has(point.date) || !pointHasMetrics(point)) continue;
+      const snapshot: PriceHistorySnapshot = {
+        gameDate: point.date,
+        source: result.source,
+        capturedAt,
+        advisedAsk: point.advisedAsk ?? null,
+        getIn: point.marketDetails != null ? point.marketDetails.get_in : point.getIn ?? null,
+        median: point.marketDetails != null ? point.marketDetails.median : point.median ?? null,
+        listingCount: point.listingCount ?? null,
+        lastSale: point.lastSale ?? null,
+        marketDetails: point.marketDetails ?? null,
+      };
+      unique.set(`${snapshot.gameDate}\u0000${snapshot.source}\u0000${snapshot.capturedAt}`, snapshot);
+    }
+  }
+  return [...unique.values()];
+}
+
 function flagsFromEnv(env: Env): Flags {
   return parseFlags(env);
 }
 
-export async function runIngest(
+async function runIngestUnlocked(
   env: Env,
   trigger: IngestTrigger,
   now = new Date(),
+  seed = false,
 ): Promise<IngestSummary> {
   const flags = flagsFromEnv(env);
   const etDate = etDateFrom(now);
@@ -117,25 +183,50 @@ export async function runIngest(
     };
   }
 
-  const ctx = { env, games: book.games, now };
+  if (seed) {
+    const claimed = await env.DB.prepare(
+      "INSERT INTO store (key, value, updated_at) VALUES ('seed_20260915', ?, ?) ON CONFLICT(key) DO NOTHING",
+    ).bind(JSON.stringify({ status: "started", at: now.toISOString() }), now.toISOString()).run();
+    if (!claimed.meta.changes) {
+      return { trigger, ingestEnabled: true, dryRun: false, skippedReason: "seed_already_claimed",
+        bookUpdated: false, asof_et: book.asof_et, sources: [] };
+    }
+  }
+
+  const ctx = { env, games: book.games, now, seed };
 
   if (flags.sources.includes("seatdata")) {
-    const seat = await runSeatData(ctx, spend, etDate);
-    spend = seat.spend;
-    sources.push(seat.result);
+    try {
+      const seat = await runSeatData(ctx, spend, etDate);
+      spend = seat.spend;
+      sources.push(seat.result);
+    } catch {
+      spend = await readSpend(env, now);
+      spend.sources.seatdata = openCircuit(spend.sources.seatdata, etDate, "request_failed");
+      await writeSpend(env, spend);
+      sources.push({ source: "seatdata", paid: true, aborted: "request_failed", points: [] });
+    }
   }
 
   if (flags.sources.includes("apify")) {
-    const apify = await runApify(ctx, spend, etDate);
-    spend = apify.spend;
-    sources.push(apify.result);
+    try {
+      const apify = await runApify(ctx, spend, etDate);
+      spend = apify.spend;
+      sources.push(apify.result);
+    } catch {
+      spend = await readSpend(env, now);
+      spend.sources.apify = openCircuit(spend.sources.apify, etDate, "request_failed");
+      await writeSpend(env, spend);
+      sources.push({ source: "apify", paid: true, aborted: "request_failed", points: [] });
+    }
   }
 
-  const hasPoints = sources.some((result) => result.points.length > 0);
+  const snapshots = historyFromResults(book, sources, now.toISOString());
+  const hasPoints = snapshots.length > 0;
   let nextBook = book;
   if (hasPoints) {
     nextBook = mergeBook(book, sources, now);
-    await writeBook(env, nextBook);
+    await writeBookAndHistory(env, nextBook, snapshots);
   }
 
   spend.lastRun = {
@@ -143,19 +234,29 @@ export async function runIngest(
     trigger,
     ingestEnabled: true,
     dryRun: false,
+    bookUpdated: hasPoints,
+    seed,
     sources: Object.fromEntries(
       sources.map((result) => [
         result.source,
         {
-          attempted: true,
+          attempted: result.aborted !== "missing_credential" && result.aborted !== "source_off",
           paid: result.paid,
           aborted: result.aborted,
           pulls: result.pulls,
+          spend: result.spend,
         },
       ]),
     ),
   };
   await writeSpend(env, spend);
+  if (seed) {
+    await env.DB.prepare("UPDATE store SET value = ?, updated_at = ? WHERE key = 'seed_20260915'")
+      .bind(JSON.stringify({ status: nextBook.games.every(g => g.advised_ask != null) ? "finished" : "partial", at: now.toISOString(),
+        pricedGames: nextBook.games.filter(g => g.advised_ask != null).length,
+        totalGames: nextBook.games.length,
+        sources: spend.lastRun.sources }), new Date().toISOString()).run();
+  }
 
   return {
     trigger,
@@ -165,4 +266,29 @@ export async function runIngest(
     asof_et: nextBook.asof_et,
     sources,
   };
+}
+
+/**
+ * Serialize scheduled and manual runs so concurrent requests cannot bypass caps.
+ * A seed can spend over 10 minutes in bounded provider timeouts; its lease must
+ * cover that path as well as the normal smaller ingest.
+ */
+export async function runIngest(env: Env, trigger: IngestTrigger, now = new Date(), seed = false): Promise<IngestSummary> {
+  const token = crypto.randomUUID();
+  const acquired = await env.DB.prepare(
+    `INSERT INTO store (key, value, updated_at) VALUES ('ingest_lock', ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+     WHERE store.updated_at < ?`,
+  ).bind(token, new Date(now.getTime() + 30 * 60_000).toISOString(), now.toISOString()).run();
+  if (!acquired.meta.changes) {
+    const book = await loadLiveBook(env);
+    const flags = flagsFromEnv(env);
+    return { trigger, ingestEnabled: flags.ingestEnabled, dryRun: flags.dryRun,
+      skippedReason: "run_in_progress", bookUpdated: false, asof_et: book.asof_et, sources: [] };
+  }
+  try {
+    return await runIngestUnlocked(env, trigger, now, seed && trigger === "http");
+  } finally {
+    await env.DB.prepare("DELETE FROM store WHERE key = 'ingest_lock' AND value = ?").bind(token).run();
+  }
 }

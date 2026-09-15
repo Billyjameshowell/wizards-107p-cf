@@ -9,7 +9,8 @@
 	"compatibility_date": "2026-09-11",
 	"assets": {
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/api/*"]
+		"binding": "ASSETS",
+		"run_worker_first": true
 	},
 	"observability": {
 		"enabled": true
@@ -19,11 +20,11 @@
 		"crons": ["0 12 * * *"]
 	},
 	"vars": {
-		"INGEST_ENABLED": "false",
-		"DRY_RUN": "true",
+		"INGEST_ENABLED": "true",
+		"DRY_RUN": "false",
 		"SOURCES": "seatdata,apify",
 		"APIFY_INCLUDE_LISTINGS": "false",
-		"SEATDATA_BASE_URL": "https://api.seatdata.io",
+		"SEATDATA_BASE_URL": "https://seatdata.io/api",
 		"SEATDATA_MAX_PULLS_PER_RUN": "20",
 		"SEATDATA_MAX_PULLS_PER_ET_DAY": "25",
 		"APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
