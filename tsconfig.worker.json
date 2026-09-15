@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
+    "types": ["./worker-configuration.d.ts", "vite/client"],
+    "resolveJsonModule": true,
+    "module": "esnext",
+    "moduleResolution": "bundler"
+  },
+  "include": ["worker", "src/shared", "data/seed-book.json"]
+}

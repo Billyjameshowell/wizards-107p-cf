@@ -1,0 +1,12 @@
+# Copy to .dev.vars for local wrangler/vite (never commit .dev.vars).
+# Paid ingest stays off until you flip INGEST_ENABLED and DRY_RUN.
+
+CRON_SECRET=change-me-local-only
+SEATDATA_API_KEY=
+APIFY_TOKEN=
+
+# Optional local overrides (wrangler.jsonc already defaults these to SAFE).
+# INGEST_ENABLED=false
+# DRY_RUN=true
+# SOURCES=seatdata,apify
+# APIFY_INCLUDE_LISTINGS=false
