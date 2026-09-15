@@ -10,6 +10,29 @@ export const HARD_CAPS = {
 
 export const DEFAULT_SOURCES: SourceId[] = ["seatdata", "apify"];
 
+/** Returns true only for a non-empty credential that is not an obvious placeholder. */
+export function isUsableCredential(value: string | undefined): boolean {
+  if (value == null) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  return ![
+    "change-me",
+    "change-me-local-only",
+    "changeme",
+    "dummy",
+    "example",
+    "placeholder",
+    "not_configured",
+    "ingest_disabled",
+    "replace-me",
+    "replace_with_real_key",
+    "your-api-key",
+    "your_api_key",
+    "your-token",
+    "your_token",
+  ].some((marker) => normalized === marker || normalized.includes(marker));
+}
+
 export type Flags = {
   ingestEnabled: boolean;
   dryRun: boolean;
@@ -28,6 +51,8 @@ export type SourceSpend = {
   pullsToday: number;
   lastPullEtDate: string | null;
   circuitOpenEtDate: string | null;
+  /** Last event date selected by the SeatData baseline rotation. */
+  rotationCursor?: string | null;
   lastError?: string;
 };
 
@@ -40,6 +65,8 @@ export type SpendState = {
     ingestEnabled: boolean;
     dryRun: boolean;
     skippedReason?: string;
+    bookUpdated?: boolean;
+    seed?: boolean;
     sources: Record<
       string,
       {
@@ -47,6 +74,7 @@ export type SpendState = {
         paid: boolean;
         aborted?: string;
         pulls?: number;
+        spend?: { actualUsd: number; estimatedUsd: number; reservedUsd: number; eventsFetched: number; pulls: number; runId?: string; status?: string; stats?: unknown };
       }
     >;
   };
@@ -61,6 +89,7 @@ export function emptySourceSpend(): SourceSpend {
     pullsToday: 0,
     lastPullEtDate: null,
     circuitOpenEtDate: null,
+    rotationCursor: null,
   };
 }
 
@@ -151,7 +180,7 @@ export function parseFlags(env: object): Flags {
         HARD_CAPS.apifyMaxEvents,
       ),
     ),
-    seatdataBaseUrl: (readEnvString(env, "SEATDATA_BASE_URL") ?? "https://api.seatdata.io").replace(
+    seatdataBaseUrl: (readEnvString(env, "SEATDATA_BASE_URL") ?? "https://seatdata.io/api").replace(
       /\/$/,
       "",
     ),
@@ -179,6 +208,7 @@ export function rolloverSpend(state: SpendState | null | undefined, etDate: stri
       pullsToday: sameDay && prev.lastPullEtDate === etDate ? prev.pullsToday : 0,
       lastPullEtDate: prev.lastPullEtDate === etDate ? prev.lastPullEtDate : null,
       circuitOpenEtDate: prev.circuitOpenEtDate === etDate ? etDate : null,
+      rotationCursor: prev.rotationCursor ?? null,
       lastError: prev.circuitOpenEtDate === etDate ? prev.lastError : undefined,
     };
   }
@@ -242,6 +272,7 @@ export function apifyActorInput(flags: Flags): {
   mode: "performer";
   performerSlug: string;
   maxResults: number;
+  maxPages: number;
   includeListings: boolean;
   enrichDetails: boolean;
 } {
@@ -249,6 +280,7 @@ export function apifyActorInput(flags: Flags): {
     mode: "performer",
     performerSlug: "washington-wizards",
     maxResults: flags.apifyMaxEvents,
+    maxPages: 2,
     includeListings: flags.apifyIncludeListings === true,
     enrichDetails: false,
   };

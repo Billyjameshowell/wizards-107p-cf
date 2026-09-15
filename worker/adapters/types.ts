@@ -1,4 +1,4 @@
-import type { Game } from "../../src/shared/book";
+import type { Game, MarketDetails } from "../../src/shared/book";
 
 export type MarketPoint = {
   date: string;
@@ -7,6 +7,7 @@ export type MarketPoint = {
   median?: number | null;
   listingCount?: number | null;
   lastSale?: number | null;
+  marketDetails?: MarketDetails | null;
 };
 
 export type AdapterResult = {
@@ -15,12 +16,24 @@ export type AdapterResult = {
   aborted?: string;
   pulls?: number;
   points: MarketPoint[];
+  spend?: {
+    actualUsd: number;
+    estimatedUsd: number;
+    reservedUsd: number;
+    eventsFetched: number;
+    pulls: number;
+    runId?: string;
+    status?: string;
+    stats?: unknown;
+  };
 };
 
 export type AdapterContext = {
   env: Env;
   games: Game[];
   now: Date;
+  /** One-shot seed mode. The caller claims this mode before creating context. */
+  seed?: boolean;
 };
 
 export function dateFromLocal(value: string | undefined): string | null {

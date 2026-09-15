@@ -5,8 +5,8 @@ CRON_SECRET=change-me-local-only
 SEATDATA_API_KEY=
 APIFY_TOKEN=
 
-# Optional local overrides (wrangler.jsonc already defaults these to SAFE).
-# INGEST_ENABLED=false
-# DRY_RUN=true
+# Local development remains safe even though production is enabled.
+INGEST_ENABLED=false
+DRY_RUN=true
 # SOURCES=seatdata,apify
 # APIFY_INCLUDE_LISTINGS=false

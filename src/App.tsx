@@ -26,16 +26,16 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-xl px-4 py-16 text-center">
-        <h1 className="font-heading text-2xl text-navy">Wizards 107P</h1>
-        <p className="mt-3 text-muted-foreground">{error}</p>
+      <div className="page-message">
+        <h1 >Wizards 107P</h1>
+        <p >{error}</p>
       </div>
     );
   }
 
   if (!book) {
     return (
-      <div className="mx-auto max-w-xl px-4 py-16 text-center text-muted-foreground">
+      <div className="page-message">
         Loading the book…
       </div>
     );

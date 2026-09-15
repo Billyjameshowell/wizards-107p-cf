@@ -1,5 +1,31 @@
 export type SitOrSell = "Sit" | "Sell" | "TBD";
 
+export type MarketZoneComp = {
+  section: string;
+  row: string;
+  quantity: number;
+  price: number;
+};
+
+/**
+ * Detail metrics captured alongside a game's existing market fields.
+ *
+ * These values are intentionally optional at the Game level because older
+ * books (and books before the next market pull) do not have them yet.
+ */
+export type MarketDetails = {
+  source: "seatdata" | "apify";
+  asof: string;
+  get_in: number | null;
+  median: number | null;
+  lower_level_get_in: number | null;
+  lower_level_median: number | null;
+  zone_get_in: number | null;
+  zone_median: number | null;
+  zone_comp_count: number;
+  zone_comps: MarketZoneComp[];
+};
+
 export type Game = {
   date: string;
   weekday: string;
@@ -17,6 +43,10 @@ export type Game = {
   market_get_in?: number | null;
   market_median?: number | null;
   listing_count?: number | null;
+  market_details?: MarketDetails | null;
+  /** The prior comparable SeatData snapshot, used for market change display. */
+  market_previous_details?: MarketDetails | null;
+  market_updated_at_et?: string;
 };
 
 export type Book = {
