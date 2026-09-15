@@ -75,7 +75,7 @@ function StatusCheck({
   showLabel?: boolean;
 }) {
   return (
-    <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap md:min-h-0">
+    <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap lg:min-h-0">
       <input
         type="checkbox"
         className="size-3.5 accent-navy"
@@ -136,7 +136,7 @@ function GameCard({
         <PreseasonMark type={game.type} />
       </p>
 
-      <dl className="mt-3 grid grid-cols-2 gap-3">
+      <dl className="mt-3 grid max-w-md grid-cols-2 gap-3">
         <div className="min-w-0">
           <dt className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
             Advised ask
@@ -307,7 +307,7 @@ export function TicketBook({
         </div>
       </div>
 
-      <div className="space-y-2.5 md:hidden">
+      <div className="space-y-2.5 lg:hidden">
         {visible.map(({ game, status }) => (
           <GameCard
             key={game.date}
@@ -320,8 +320,8 @@ export function TicketBook({
         {emptyMessage}
       </div>
 
-      <Card className="hidden overflow-hidden border-line py-0 shadow-[0_10px_30px_rgba(11,31,58,0.12)] md:flex">
-        <div className="max-h-[min(72vh,820px)] overflow-auto">
+      <Card className="hidden min-w-0 overflow-hidden border-line py-0 shadow-[0_10px_30px_rgba(11,31,58,0.12)] lg:flex">
+        <div className="min-h-0 min-w-0 max-h-[min(72vh,820px)] overflow-auto">
           <div className="min-w-[960px]">
             <Table>
               <TableHeader>
