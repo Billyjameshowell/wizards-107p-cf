@@ -18,6 +18,10 @@ Morning cron writes the live book to D1/KV. The UI reads `/api/book`. No Vercel.
 
 Paid market pulls stay **off** until you flip flags.
 
+Live: https://wizards-107p-cf.dfm7gb44c6.workers.dev
+
+Production D1 and KV are provisioned and wired in `wrangler.jsonc`. `CRON_SECRET` is stored in Workers secrets; `SEATDATA_API_KEY` and `APIFY_TOKEN` contain disabled placeholders. `INGEST_ENABLED=false` and `DRY_RUN=true` keep paid pulls off.
+
 ## Local
 
 ```bash
@@ -44,7 +48,7 @@ curl "http://localhost:5173/cdn-cgi/local/scheduled"
 
 ## Deploy
 
-1. Create storage (once per account):
+1. Create storage (once per account; already done for production):
 
 ```bash
 npx wrangler d1 create wizards-107p
@@ -58,7 +62,7 @@ npx wrangler kv namespace create BOOK
 npm run db:migrate:remote
 ```
 
-4. Put secrets (do not commit them):
+4. Put production secrets with Wrangler (do not commit them). `CRON_SECRET` is required for the protected HTTP cron endpoint. Replace the paid API placeholders with real keys before enabling paid ingest:
 
 ```bash
 npx wrangler secret put CRON_SECRET
@@ -87,14 +91,13 @@ Put **secrets** with Wrangler. They never belong in git.
 | `SEATDATA_API_KEY` | SeatData API (comps in 107/108/118/119 J–T) |
 | `APIFY_TOKEN` | Apify Actor `lentic_clockss/seatgeek-scraper` |
 
-Flags are Worker **vars** in `wrangler.jsonc` (SAFE defaults). To change them in production after deploy:
+Flags are Worker **vars** in `wrangler.jsonc` (SAFE defaults). To change them in production, edit `wrangler.jsonc` and redeploy:
 
 ```bash
-npx wrangler secret put INGEST_ENABLED
-npx wrangler secret put DRY_RUN
+npm run deploy
 ```
 
-(A secret overrides the `vars` value.) Or edit `vars` and redeploy.
+Keep the safe defaults until the paid credentials are present and you are ready to spend.
 
 | Flag | SAFE default | Notes |
 | --- | --- | --- |
@@ -111,16 +114,18 @@ npx wrangler secret put DRY_RUN
 
 ## How to enable ingest
 
-Money stays off until **both** flags flip:
+First replace both paid API placeholders with real keys using the secret commands above. Money stays off until **both** flags flip in `wrangler.jsonc`:
 
 ```bash
-npx wrangler secret put INGEST_ENABLED   # type: true
-npx wrangler secret put DRY_RUN          # type: false
+# edit vars:
+# INGEST_ENABLED: "true"
+# DRY_RUN: "false"
+npm run deploy
 ```
 
 Then the ~8am ET cron (or a Bearer call to `/api/cron`) may call SeatData and Apify, write the book to D1/KV, and the next page load shows new asks. One paid attempt per source per run. 429/5xx abort that source and trip an ET-day circuit breaker.
 
-To turn spend back off: set `INGEST_ENABLED=false` or `DRY_RUN=true`.
+To turn spend back off: edit the vars to set `INGEST_ENABLED: "false"` or `DRY_RUN: "true"`, then redeploy.
 
 ## Data
 
