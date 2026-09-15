@@ -33,14 +33,14 @@
 		{
 			"binding": "DB",
 			"database_name": "wizards-107p",
-			"database_id": "00000000-0000-0000-0000-000000000001",
+			"database_id": "654e066d-0f31-43a2-9856-c35fea9faf3b",
 			"migrations_dir": "migrations"
 		}
 	],
 	"kv_namespaces": [
 		{
 			"binding": "BOOK",
-			"id": "00000000-0000-0000-0000-000000000002"
+			"id": "55280961d31940b692a03636f8ebb901"
 		}
 	]
 }
