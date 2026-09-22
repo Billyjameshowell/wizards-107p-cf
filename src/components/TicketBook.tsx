@@ -1,7 +1,18 @@
 import { useMemo, useState } from "react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
+import {
+  DEFAULT_GAME_SORT,
+  SORT_COLUMNS,
+  sortGameRows,
+  toggleSort,
+  type GameSort,
+  type SortDirection,
+  type SortKey,
+} from "@/lib/sort-games";
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
+import { MAX_TABLE_SCALE, MIN_TABLE_SCALE, stepTableScale } from "@/lib/table-zoom";
+import { usePinchZoom } from "@/lib/use-pinch-zoom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -90,6 +101,60 @@ function StatusCheck({
         {label} {name}
       </span>
     </label>
+  );
+}
+
+function formatType(type: string): string {
+  if (!type) return "—";
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function SortMark({ direction }: { direction: SortDirection | null }) {
+  const glyph = direction === "asc" ? "▲" : direction === "desc" ? "▼" : "↕";
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block min-w-3 text-center text-[10px] leading-none",
+        direction ? "text-navy" : "text-muted-foreground/70",
+      )}
+    >
+      {glyph}
+    </span>
+  );
+}
+
+function SortableHead({
+  column,
+  sort,
+  onSort,
+  className,
+}: {
+  column: SortKey;
+  sort: GameSort;
+  onSort: (column: SortKey) => void;
+  className?: string;
+}) {
+  const label = SORT_COLUMNS.find((item) => item.key === column)?.label ?? column;
+  const active = sort.key === column;
+  const direction = active ? sort.direction : null;
+  return (
+    <TableHead
+      aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
+      className={className}
+    >
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-left font-medium select-none"
+        onClick={() => onSort(column)}
+      >
+        {label}
+        <SortMark direction={direction} />
+        <span className="sr-only">
+          {direction === "asc" ? ", sorted ascending" : direction === "desc" ? ", sorted descending" : ", not sorted"}
+        </span>
+      </button>
+    </TableHead>
   );
 }
 
@@ -189,6 +254,8 @@ export function TicketBook({
   const [localStatus, setLocalStatus] = useState<ListingStatusMap>(() => readLocalStatus());
   const [filter, setFilter] = useState<FilterId>("all");
   const [copyLabel, setCopyLabel] = useState("Copy status");
+  const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
+  const { scale, setScale, bind } = usePinchZoom();
 
   const games = useMemo(
     () => [...book.games].sort((a, b) => a.date.localeCompare(b.date)),
@@ -204,14 +271,21 @@ export function TicketBook({
     [games, repoStatus, localStatus],
   );
 
-  const visible = rows.filter(({ game, status }) => {
-    if (filter === "sit") return game.sit_or_sell === "Sit";
-    if (filter === "sell") return game.sit_or_sell === "Sell";
-    if (filter === "listed") return status.listed;
-    if (filter === "sold") return status.sold;
-    if (filter === "not-listed") return !status.listed && !status.sold;
-    return true;
-  });
+  const visible = useMemo(() => {
+    const filtered = rows.filter(({ game, status }) => {
+      if (filter === "sit") return game.sit_or_sell === "Sit";
+      if (filter === "sell") return game.sit_or_sell === "Sell";
+      if (filter === "listed") return status.listed;
+      if (filter === "sold") return status.sold;
+      if (filter === "not-listed") return !status.listed && !status.sold;
+      return true;
+    });
+    return sortGameRows(filtered, sort);
+  }, [rows, filter, sort]);
+
+  function chooseSort(column: SortKey) {
+    setSort((current) => toggleSort(current, column));
+  }
 
   function patchStatus(date: string, patch: Partial<{ listed: boolean; sold: boolean }>) {
     const game = games.find((item) => item.date === date);
@@ -307,35 +381,97 @@ export function TicketBook({
         </div>
       </div>
 
-      <div className="space-y-2.5 lg:hidden">
-        {visible.map(({ game, status }) => (
-          <GameCard
-            key={game.date}
-            game={game}
-            status={status}
-            onListed={(checked) => patchStatus(game.date, { listed: checked })}
-            onSold={(checked) => patchStatus(game.date, { sold: checked })}
-          />
-        ))}
-        {emptyMessage}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">Pinch or Ctrl+scroll to resize. Scroll still moves the list.</p>
+        <div className="flex items-center gap-1.5" role="group" aria-label="Table size">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label="Zoom out"
+            disabled={scale <= MIN_TABLE_SCALE}
+            onClick={() => setScale(stepTableScale(scale, -1))}
+          >
+            −
+          </Button>
+          <span className="min-w-12 text-center text-sm tabular-nums">{Math.round(scale * 100)}%</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label="Zoom in"
+            disabled={scale >= MAX_TABLE_SCALE}
+            onClick={() => setScale(stepTableScale(scale, 1))}
+          >
+            +
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setScale(1)} disabled={scale === 1}>
+            Reset
+          </Button>
+        </div>
+      </div>
+
+      <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:hidden" role="group" aria-label="Sort games">
+        {SORT_COLUMNS.map((column) => {
+          const active = sort.key === column.key;
+          return (
+            <Button
+              key={column.key}
+              type="button"
+              size="sm"
+              variant={active ? "default" : "outline"}
+              aria-pressed={active}
+              className="shrink-0"
+              onClick={() => chooseSort(column.key)}
+            >
+              {column.label}
+              <SortMark direction={active ? sort.direction : null} />
+            </Button>
+          );
+        })}
+      </div>
+
+      <div
+        ref={bind}
+        className="lg:hidden"
+        style={{ touchAction: "pan-x pan-y", zoom: scale }}
+      >
+        <div className="space-y-2.5">
+          {visible.map(({ game, status }) => (
+            <GameCard
+              key={game.date}
+              game={game}
+              status={status}
+              onListed={(checked) => patchStatus(game.date, { listed: checked })}
+              onSold={(checked) => patchStatus(game.date, { sold: checked })}
+            />
+          ))}
+          {emptyMessage}
+        </div>
       </div>
 
       <Card className="hidden min-w-0 overflow-hidden border-line py-0 shadow-[0_10px_30px_rgba(11,31,58,0.12)] lg:flex">
-        <div className="min-h-0 min-w-0 max-h-[min(72vh,820px)] overflow-auto">
-          <div className="min-w-[960px]">
-            <Table>
+        <div
+          ref={bind}
+          className="min-h-0 min-w-0 w-full max-h-[min(72vh,820px)] overflow-auto"
+          style={{ touchAction: "pan-x pan-y" }}
+        >
+          <div style={{ zoom: scale }}>
+            <div className="min-w-[1020px]">
+              <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="sticky top-0 z-20 bg-thead">Date</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Opponent</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Time</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Sit/Sell</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Advised ask</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Cash both after 10%</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Listed?</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Sold?</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">TicketData</TableHead>
-                  <TableHead className="sticky top-0 z-10 bg-thead">Notes</TableHead>
+                  <SortableHead column="date" sort={sort} onSort={chooseSort} className="sticky top-0 z-20 bg-thead" />
+                  <SortableHead column="opponent" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="type" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="time" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="cash" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="listed" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="sold" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="ticketdata" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="notes" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -351,6 +487,7 @@ export function TicketBook({
                       <span className="font-semibold">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />
                     </TableCell>
+                    <TableCell>{formatType(game.type)}</TableCell>
                     <TableCell>{game.time_et}</TableCell>
                     <TableCell>
                       <SitSellLabel value={game.sit_or_sell} />
@@ -386,7 +523,8 @@ export function TicketBook({
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
+              </Table>
+            </div>
           </div>
           {emptyMessage}
         </div>
