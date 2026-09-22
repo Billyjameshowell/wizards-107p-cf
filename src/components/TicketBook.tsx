@@ -11,6 +11,15 @@ import {
   type SortKey,
 } from "@/lib/sort-games";
 import { buildingPrices, centralColumnLabel } from "@/lib/building-prices";
+import {
+  readScenario,
+  scenarioChoice,
+  scenarioSummary,
+  withScenarioChoice,
+  writeScenario,
+  type ScenarioChoice,
+  type ScenarioMap,
+} from "@/lib/scenario";
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
 import { MAX_TABLE_SCALE, MIN_TABLE_SCALE, stepTableScale } from "@/lib/table-zoom";
 import { usePinchZoom } from "@/lib/use-pinch-zoom";
@@ -48,19 +57,41 @@ function toneRowClass(value: string): string {
   return "bg-tbd hover:bg-tbd";
 }
 
-function SitSellLabel({ value }: { value: string }) {
-  const tone = decisionTone(value);
+function ScenarioToggle({
+  value,
+  opponent,
+  onChange,
+}: {
+  value: string;
+  opponent: string;
+  onChange: (choice: ScenarioChoice) => void;
+}) {
   return (
-    <span
-      className={cn(
-        "font-bold",
-        tone === "sit" && "text-sit-ink",
-        tone === "sell" && "text-sell-ink",
-        tone === "tbd" && "text-tbd-ink",
-      )}
+    <div
+      role="group"
+      aria-label={`What-if scenario for ${opponent}`}
+      className="inline-flex rounded-lg border border-line bg-white/80 p-0.5"
     >
-      {value}
-    </span>
+      {(["Sit", "Sell"] as const).map((choice) => {
+        const selected = value === choice;
+        return (
+          <button
+            key={choice}
+            type="button"
+            aria-pressed={selected}
+            className={cn(
+              "min-h-11 min-w-11 rounded-md px-2.5 text-sm font-bold lg:min-h-8",
+              selected && choice === "Sit" && "bg-sit text-sit-ink",
+              selected && choice === "Sell" && "bg-sell text-sell-ink",
+              !selected && "text-muted-foreground",
+            )}
+            onClick={() => onChange(choice)}
+          >
+            {choice}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -191,11 +222,13 @@ function GameCard({
   status,
   onListed,
   onSold,
+  onDecision,
 }: {
   game: Game;
   status: ListingOverride;
   onListed: (checked: boolean) => void;
   onSold: (checked: boolean) => void;
+  onDecision: (choice: ScenarioChoice) => void;
 }) {
   const prices = buildingPrices(game);
   return (
@@ -205,7 +238,7 @@ function GameCard({
           <p className="font-semibold leading-tight">{formatGameDate(game.date, game.weekday)}</p>
           <p className="text-xs font-medium text-muted-foreground">{formatYear(game.date)}</p>
         </div>
-        <SitSellLabel value={game.sit_or_sell} />
+        <ScenarioToggle value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
       </div>
 
       <p className="mt-2 text-base font-semibold leading-snug break-words">{game.opponent}</p>
@@ -270,6 +303,7 @@ export function TicketBook({
   repoStatus: ListingStatusMap;
 }) {
   const [localStatus, setLocalStatus] = useState<ListingStatusMap>(() => readLocalStatus());
+  const [scenario, setScenario] = useState<ScenarioMap>(() => readScenario());
   const [filter, setFilter] = useState<FilterId>("all");
   const [copyLabel, setCopyLabel] = useState("Copy status");
   const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
@@ -280,13 +314,18 @@ export function TicketBook({
     [book.games],
   );
 
+  const summary = useMemo(
+    () => scenarioSummary(games, scenario, book.season_cost),
+    [games, scenario, book.season_cost],
+  );
+
   const rows = useMemo(
     () =>
       games.map((game) => ({
-        game,
+        game: { ...game, sit_or_sell: scenarioChoice(game, scenario) },
         status: mergeGameStatus(game, repoStatus, localStatus),
       })),
-    [games, repoStatus, localStatus],
+    [games, scenario, repoStatus, localStatus],
   );
 
   const visible = useMemo(() => {
@@ -305,6 +344,17 @@ export function TicketBook({
 
   function chooseSort(column: SortKey) {
     setSort((current) => toggleSort(current, column));
+  }
+
+  function setDecision(date: string, choice: ScenarioChoice) {
+    const next = withScenarioChoice(games, scenario, date, choice);
+    setScenario(next);
+    writeScenario(next);
+  }
+
+  function resetScenario() {
+    setScenario({});
+    writeScenario({});
   }
 
   function patchStatus(date: string, patch: Partial<{ listed: boolean; sold: boolean }>) {
@@ -357,28 +407,34 @@ export function TicketBook({
         <h1 className="font-heading mt-1 text-[22px] tracking-tight sm:text-[28px]">Wizards 107P</h1>
         <p className="mt-1.5 text-sm leading-snug text-navy-muted">
           Season ticket desk · last market pull {book.asof_et} ET · target{" "}
-          {formatMoney(book.season_cost)}
+          {formatMoney(book.season_cost)} · {book.games.length} home games
         </p>
-        <ul className="mt-4 grid list-none gap-2.5 p-0 sm:grid-cols-3">
+        <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-gold">
+          What-if scenario · does not list tickets
+        </p>
+        <ul className="mt-2 grid list-none gap-2.5 p-0 sm:grid-cols-3">
           <li className="rounded-lg bg-white/5 px-3 py-2.5">
             <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
               Sell-book cash after ~10%
             </p>
-            <p className="mt-1 text-lg font-semibold tracking-tight">{formatMoney(book.sell_book_cash)}</p>
+            <p className="mt-1 text-lg font-semibold tracking-tight">{formatMoney(summary.sellCash)}</p>
           </li>
           <li className="rounded-lg bg-white/5 px-3 py-2.5">
             <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
-              Vs $6,000
+              Vs {formatMoney(book.season_cost)}
             </p>
             <p className="mt-1 text-lg font-semibold tracking-tight leading-snug">
-              {formatShortfall(book.vs_6k, book.season_cost)}
+              {formatShortfall(summary.vsSeason, book.season_cost)}
             </p>
           </li>
           <li className="rounded-lg bg-white/5 px-3 py-2.5">
             <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
-              Home games
+              Sell vs Sit
             </p>
-            <p className="mt-1 text-lg font-semibold tracking-tight">{book.games.length}</p>
+            <p className="mt-1 text-lg font-semibold tracking-tight leading-snug">
+              {summary.sellCount} Sell · {summary.sitCount} Sit
+              {summary.tbdCount > 0 ? ` · ${summary.tbdCount} TBD` : ""}
+            </p>
           </li>
         </ul>
       </header>
@@ -407,6 +463,15 @@ export function TicketBook({
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={clearLocal}>
             Clear local status
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={resetScenario}
+            disabled={Object.keys(scenario).length === 0}
+          >
+            Reset scenario
           </Button>
         </div>
       </div>
@@ -475,6 +540,7 @@ export function TicketBook({
               status={status}
               onListed={(checked) => patchStatus(game.date, { listed: checked })}
               onSold={(checked) => patchStatus(game.date, { sold: checked })}
+              onDecision={(choice) => setDecision(game.date, choice)}
             />
           ))}
           {emptyMessage}
@@ -531,7 +597,11 @@ export function TicketBook({
                     <TableCell>{formatType(game.type)}</TableCell>
                     <TableCell>{game.time_et}</TableCell>
                     <TableCell>
-                      <SitSellLabel value={game.sit_or_sell} />
+                      <ScenarioToggle
+                        value={game.sit_or_sell}
+                        opponent={game.opponent}
+                        onChange={(choice) => setDecision(game.date, choice)}
+                      />
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums">
                       {formatMoney(game.advised_ask)}
