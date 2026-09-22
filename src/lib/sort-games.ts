@@ -1,4 +1,5 @@
 import type { Game, ListingOverride } from "@shared/book";
+import { buildingPrices } from "@/lib/building-prices";
 
 export type SortKey =
   | "date"
@@ -8,6 +9,8 @@ export type SortKey =
   | "sit_or_sell"
   | "advised_ask"
   | "cash"
+  | "get_in"
+  | "central"
   | "listed"
   | "sold"
   | "ticketdata"
@@ -30,6 +33,8 @@ export const SORT_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "sit_or_sell", label: "Sit/Sell" },
   { key: "advised_ask", label: "Advised ask" },
   { key: "cash", label: "Cash both after 10%" },
+  { key: "get_in", label: "Get-in" },
+  { key: "central", label: "Median" },
   { key: "listed", label: "Listed?" },
   { key: "sold", label: "Sold?" },
   { key: "ticketdata", label: "TicketData" },
@@ -78,6 +83,16 @@ function isBlankNumber(value: number | null | undefined): boolean {
   return value == null || Number.isNaN(value);
 }
 
+function compareNumbers(
+  aVal: number | null | undefined,
+  bVal: number | null | undefined,
+  direction: SortDirection,
+): number {
+  const blank = blanksLast(isBlankNumber(aVal), isBlankNumber(bVal));
+  if (blank !== null) return blank;
+  return directed((aVal ?? 0) - (bVal ?? 0), direction);
+}
+
 function primaryCompare(rowA: SortableGameRow, rowB: SortableGameRow, sort: GameSort): number {
   const a = rowA.game;
   const b = rowB.game;
@@ -98,12 +113,21 @@ function primaryCompare(rowA: SortableGameRow, rowB: SortableGameRow, sort: Game
     case "sit_or_sell":
       return directed(compareText(a.sit_or_sell, b.sit_or_sell), sort.direction);
     case "advised_ask":
-    case "cash": {
-      const aVal = sort.key === "advised_ask" ? a.advised_ask : a.cash_both_after_fee;
-      const bVal = sort.key === "advised_ask" ? b.advised_ask : b.cash_both_after_fee;
-      const blank = blanksLast(isBlankNumber(aVal), isBlankNumber(bVal));
-      if (blank !== null) return blank;
-      return directed((aVal ?? 0) - (bVal ?? 0), sort.direction);
+    case "cash":
+      return compareNumbers(
+        sort.key === "advised_ask" ? a.advised_ask : a.cash_both_after_fee,
+        sort.key === "advised_ask" ? b.advised_ask : b.cash_both_after_fee,
+        sort.direction,
+      );
+    case "get_in":
+    case "central": {
+      const aPrices = buildingPrices(a);
+      const bPrices = buildingPrices(b);
+      return compareNumbers(
+        sort.key === "get_in" ? aPrices.getIn : aPrices.central,
+        sort.key === "get_in" ? bPrices.getIn : bPrices.central,
+        sort.direction,
+      );
     }
     case "listed":
       return directed(Number(rowA.status.listed) - Number(rowB.status.listed), sort.direction);

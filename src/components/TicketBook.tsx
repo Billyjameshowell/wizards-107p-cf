@@ -10,6 +10,7 @@ import {
   type SortDirection,
   type SortKey,
 } from "@/lib/sort-games";
+import { buildingPrices, centralColumnLabel } from "@/lib/building-prices";
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
 import { MAX_TABLE_SCALE, MIN_TABLE_SCALE, stepTableScale } from "@/lib/table-zoom";
 import { usePinchZoom } from "@/lib/use-pinch-zoom";
@@ -129,13 +130,15 @@ function SortableHead({
   sort,
   onSort,
   className,
+  label,
 }: {
   column: SortKey;
   sort: GameSort;
   onSort: (column: SortKey) => void;
   className?: string;
+  label?: string;
 }) {
-  const label = SORT_COLUMNS.find((item) => item.key === column)?.label ?? column;
+  const heading = label ?? SORT_COLUMNS.find((item) => item.key === column)?.label ?? column;
   const active = sort.key === column;
   const direction = active ? sort.direction : null;
   return (
@@ -148,7 +151,7 @@ function SortableHead({
         className="inline-flex items-center gap-1 text-left font-medium select-none"
         onClick={() => onSort(column)}
       >
-        {label}
+        {heading}
         <SortMark direction={direction} />
         <span className="sr-only">
           {direction === "asc" ? ", sorted ascending" : direction === "desc" ? ", sorted descending" : ", not sorted"}
@@ -174,6 +177,15 @@ function TicketDataLink({ href }: { href: string | null }) {
   );
 }
 
+function PriceStat({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-semibold tabular-nums">{formatMoney(value)}</dd>
+    </div>
+  );
+}
+
 function GameCard({
   game,
   status,
@@ -185,6 +197,7 @@ function GameCard({
   onListed: (checked: boolean) => void;
   onSold: (checked: boolean) => void;
 }) {
+  const prices = buildingPrices(game);
   return (
     <article className={cn("rounded-xl border border-line px-3 py-3", toneRowClass(game.sit_or_sell))}>
       <div className="flex items-start justify-between gap-3">
@@ -214,6 +227,11 @@ function GameCard({
           </dt>
           <dd className="mt-0.5 font-semibold tabular-nums">{formatMoney(game.cash_both_after_fee)}</dd>
         </div>
+        <PriceStat label="Get-in" value={prices.getIn} />
+        <PriceStat
+          label={prices.centralKind === "mean" ? "Mean" : "Median"}
+          value={prices.central}
+        />
       </dl>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -282,6 +300,8 @@ export function TicketBook({
     });
     return sortGameRows(filtered, sort);
   }, [rows, filter, sort]);
+
+  const centralLabel = centralColumnLabel(visible.map((row) => row.game));
 
   function chooseSort(column: SortKey) {
     setSort((current) => toggleSort(current, column));
@@ -414,6 +434,7 @@ export function TicketBook({
       <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:hidden" role="group" aria-label="Sort games">
         {SORT_COLUMNS.map((column) => {
           const active = sort.key === column.key;
+          const label = column.key === "central" ? centralLabel : column.label;
           return (
             <Button
               key={column.key}
@@ -424,7 +445,7 @@ export function TicketBook({
               className="shrink-0"
               onClick={() => chooseSort(column.key)}
             >
-              {column.label}
+              {label}
               <SortMark direction={active ? sort.direction : null} />
             </Button>
           );
@@ -457,7 +478,7 @@ export function TicketBook({
           style={{ touchAction: "pan-x pan-y" }}
         >
           <div style={{ zoom: scale }}>
-            <div className="min-w-[1020px]">
+            <div className="min-w-[1240px]">
               <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -468,6 +489,14 @@ export function TicketBook({
                   <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                   <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                   <SortableHead column="cash" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="get_in" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead
+                    column="central"
+                    label={centralLabel}
+                    sort={sort}
+                    onSort={chooseSort}
+                    className="sticky top-0 z-10 bg-thead"
+                  />
                   <SortableHead column="listed" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                   <SortableHead column="sold" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                   <SortableHead column="ticketdata" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
@@ -475,7 +504,9 @@ export function TicketBook({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map(({ game, status }) => (
+                {visible.map(({ game, status }) => {
+                  const prices = buildingPrices(game);
+                  return (
                   <TableRow key={game.date} className={cn(toneRowClass(game.sit_or_sell))}>
                     <TableCell className="whitespace-nowrap font-semibold">
                       {formatGameDate(game.date, game.weekday)}
@@ -497,6 +528,17 @@ export function TicketBook({
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums">
                       {formatMoney(game.cash_both_after_fee)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">
+                      {formatMoney(prices.getIn)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">
+                      {formatMoney(prices.central)}
+                      {prices.centralKind === "mean" && centralLabel === "Median" ? (
+                        <span className="ml-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Mean
+                        </span>
+                      ) : null}
                     </TableCell>
                     <TableCell>
                       <StatusCheck
@@ -521,7 +563,8 @@ export function TicketBook({
                       {status.notes || "—"}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
               </Table>
             </div>

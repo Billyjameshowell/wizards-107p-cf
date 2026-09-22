@@ -70,6 +70,29 @@ describe("sortGameRows", () => {
     ).toEqual([180, 36, 16.2]);
   });
 
+  it("sorts get-in and median numerically, using mean only when median is missing", () => {
+    const rows = [
+      row({ date: "2026-11-01", opponent: "A", market_get_in: 100, market_median: 50, market_mean: 10 }),
+      row({ date: "2026-11-02", opponent: "B", market_get_in: 20, market_mean: 80 }),
+      row({ date: "2026-11-03", opponent: "C", market_get_in: null, market_median: 15 }),
+    ];
+    expect(sortGameRows(rows, { key: "get_in", direction: "asc" }).map((item) => item.game.opponent)).toEqual([
+      "B",
+      "A",
+      "C",
+    ]);
+    expect(sortGameRows(rows, { key: "central", direction: "asc" }).map((item) => item.game.opponent)).toEqual([
+      "C",
+      "A",
+      "B",
+    ]);
+    expect(sortGameRows(rows, { key: "central", direction: "desc" }).map((item) => item.game.opponent)).toEqual([
+      "B",
+      "A",
+      "C",
+    ]);
+  });
+
   it("keeps blank prices last in both directions", () => {
     const rows = [
       row({ date: "2026-10-01", opponent: "A", advised_ask: null }),

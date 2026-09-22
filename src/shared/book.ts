@@ -16,7 +16,13 @@ export type Game = {
   ticketdata_url: string | null;
   market_get_in?: number | null;
   market_median?: number | null;
+  market_mean?: number | null;
   listing_count?: number | null;
+  market_details?: {
+    get_in?: number | null;
+    median?: number | null;
+    mean?: number | null;
+  } | null;
 };
 
 export type Book = {
