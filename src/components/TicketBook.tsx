@@ -341,9 +341,19 @@ export function TicketBook({
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-xl bg-navy px-4 py-4 text-navy-foreground sm:px-5 sm:py-5">
-        <p className="m-0 text-[12px] leading-snug uppercase tracking-[0.08em] text-gold">
-          Capital One Arena · Section {book.section} Row {book.row} · seats {book.seats.join("–")}
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <p className="m-0 text-[12px] leading-snug uppercase tracking-[0.08em] text-gold">
+            Capital One Arena · Section {book.section} Row {book.row} · seats {book.seats.join("–")}
+          </p>
+          <nav aria-label="Site" className="shrink-0">
+            <a
+              href="/admin"
+              className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-gold underline decoration-gold/80 underline-offset-4"
+            >
+              Admin
+            </a>
+          </nav>
+        </div>
         <h1 className="font-heading mt-1 text-[22px] tracking-tight sm:text-[28px]">Wizards 107P</h1>
         <p className="mt-1.5 text-sm leading-snug text-navy-muted">
           Season ticket desk · last market pull {book.asof_et} ET · target{" "}
