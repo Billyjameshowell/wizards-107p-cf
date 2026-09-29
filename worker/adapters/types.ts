@@ -7,6 +7,10 @@ export type MarketPoint = {
   median?: number | null;
   listingCount?: number | null;
   lastSale?: number | null;
+  /** Middle of serious 107/108/118/119 J–T listings. Null clears a stale middle. */
+  compMedian?: number | null;
+  compCount?: number | null;
+  compExcludedDump?: boolean;
 };
 
 export type AdapterResult = {

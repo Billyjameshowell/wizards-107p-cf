@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
+import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
+import { SeatPrice } from "@/components/SeatPrice";
+import {
+  readPriceOverrides,
+  writePriceOverrides,
+  type PriceOverrideMap,
+} from "@/lib/price-overrides";
 import {
   DEFAULT_GAME_SORT,
   SORT_COLUMNS,
@@ -217,18 +224,32 @@ function PriceStat({ label, value }: { label: string; value: number | null }) {
   );
 }
 
+function DaysOut({ date, todayEt }: { date: string; todayEt: string }) {
+  const days = daysUntil(date, todayEt);
+  if (days == null) return null;
+  return <span className="block text-xs font-semibold text-navy">{formatDaysOut(days)}</span>;
+}
+
 function GameCard({
   game,
   status,
+  view,
+  todayEt,
   onListed,
   onSold,
   onDecision,
+  onTypeIn,
+  onClearPrice,
 }: {
   game: Game;
   status: ListingOverride;
+  view: SeatPriceView;
+  todayEt: string;
   onListed: (checked: boolean) => void;
   onSold: (checked: boolean) => void;
   onDecision: (choice: ScenarioChoice) => void;
+  onTypeIn: (typeIn: number) => void;
+  onClearPrice: () => void;
 }) {
   const prices = buildingPrices(game);
   return (
@@ -237,6 +258,7 @@ function GameCard({
         <div className="min-w-0">
           <p className="font-semibold leading-tight">{formatGameDate(game.date, game.weekday)}</p>
           <p className="text-xs font-medium text-muted-foreground">{formatYear(game.date)}</p>
+          <DaysOut date={game.date} todayEt={todayEt} />
         </div>
         <ScenarioToggle value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
       </div>
@@ -247,22 +269,20 @@ function GameCard({
         <PreseasonMark type={game.type} />
       </p>
 
+      <div className="mt-3">
+        <SeatPrice
+          opponent={game.opponent}
+          view={view}
+          showPair
+          onTypeIn={onTypeIn}
+          onClear={onClearPrice}
+        />
+      </div>
+
       <dl className="mt-3 grid max-w-md grid-cols-2 gap-3">
-        <div className="min-w-0">
-          <dt className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-            Advised ask
-          </dt>
-          <dd className="mt-0.5 font-semibold tabular-nums">{formatMoney(game.advised_ask)}</dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-            Cash both after 10%
-          </dt>
-          <dd className="mt-0.5 font-semibold tabular-nums">{formatMoney(game.cash_both_after_fee)}</dd>
-        </div>
-        <PriceStat label="Get-in" value={prices.getIn} />
+        <PriceStat label="Arena get-in" value={prices.getIn} />
         <PriceStat
-          label={prices.centralKind === "mean" ? "Mean" : "Median"}
+          label={prices.centralKind === "mean" ? "Arena average" : "Arena middle"}
           value={prices.central}
         />
       </dl>
@@ -304,28 +324,52 @@ export function TicketBook({
 }) {
   const [localStatus, setLocalStatus] = useState<ListingStatusMap>(() => readLocalStatus());
   const [scenario, setScenario] = useState<ScenarioMap>(() => readScenario());
+  const [overrides, setOverrides] = useState<PriceOverrideMap>(() => readPriceOverrides());
   const [filter, setFilter] = useState<FilterId>("all");
   const [copyLabel, setCopyLabel] = useState("Copy status");
   const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
   const { scale, setScale, bind } = usePinchZoom();
+  const todayEt = useMemo(() => etYmd(new Date()), []);
 
   const games = useMemo(
     () => [...book.games].sort((a, b) => a.date.localeCompare(b.date)),
     [book.games],
   );
 
+  const priced = useMemo(
+    () =>
+      games.map((game) => {
+        const view = seatPriceForGame(game, overrides[game.date] ?? null, todayEt);
+        return {
+          source: game,
+          view,
+          priced: {
+            ...game,
+            advised_ask: view.keep,
+            cash_both_after_fee: view.pair,
+          },
+        };
+      }),
+    [games, overrides, todayEt],
+  );
+
   const summary = useMemo(
-    () => scenarioSummary(games, scenario, book.season_cost),
-    [games, scenario, book.season_cost],
+    () => scenarioSummary(
+      priced.map((item) => item.priced),
+      scenario,
+      book.season_cost,
+    ),
+    [priced, scenario, book.season_cost],
   );
 
   const rows = useMemo(
     () =>
-      games.map((game) => ({
-        game: { ...game, sit_or_sell: scenarioChoice(game, scenario) },
-        status: mergeGameStatus(game, repoStatus, localStatus),
+      priced.map((item) => ({
+        game: { ...item.priced, sit_or_sell: scenarioChoice(item.priced, scenario) },
+        status: mergeGameStatus(item.source, repoStatus, localStatus),
+        view: item.view,
       })),
-    [games, scenario, repoStatus, localStatus],
+    [priced, scenario, repoStatus, localStatus],
   );
 
   const visible = useMemo(() => {
@@ -355,6 +399,25 @@ export function TicketBook({
   function resetScenario() {
     setScenario({});
     writeScenario({});
+  }
+
+  function saveTypeIn(date: string, typeIn: number) {
+    const rounded = Math.max(1, Math.round(typeIn));
+    const game = games.find((item) => item.date === date);
+    const suggestion = game ? seatPriceForGame(game, null, todayEt).suggestion : null;
+    if (overrides[date] === rounded) return;
+    if (overrides[date] == null && suggestion?.typeIn === rounded) return;
+    const next = { ...overrides, [date]: rounded };
+    setOverrides(next);
+    writePriceOverrides(next);
+  }
+
+  function clearPrice(date: string) {
+    if (overrides[date] == null) return;
+    const next = { ...overrides };
+    delete next[date];
+    setOverrides(next);
+    writePriceOverrides(next);
   }
 
   function patchStatus(date: string, patch: Partial<{ listed: boolean; sold: boolean }>) {
@@ -406,7 +469,7 @@ export function TicketBook({
         </div>
         <h1 className="font-heading mt-1 text-[22px] tracking-tight sm:text-[28px]">Wizards 107P</h1>
         <p className="mt-1.5 text-sm leading-snug text-navy-muted">
-          Season ticket desk · last market pull {book.asof_et} ET · target{" "}
+          Season ticket desk · prices as of {book.asof_et} ET · season goal{" "}
           {formatMoney(book.season_cost)} · {book.games.length} home games
         </p>
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-gold">
@@ -415,7 +478,7 @@ export function TicketBook({
         <ul className="mt-2 grid list-none gap-2.5 p-0 sm:grid-cols-3">
           <li className="rounded-lg bg-white/5 px-3 py-2.5">
             <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
-              Sell-book cash after ~10%
+              You keep on Sell games
             </p>
             <p className="mt-1 text-lg font-semibold tracking-tight">{formatMoney(summary.sellCash)}</p>
           </li>
@@ -437,7 +500,43 @@ export function TicketBook({
             </p>
           </li>
         </ul>
+        <p className="mt-3 text-sm leading-snug text-navy-muted">
+          The {formatMoney(book.season_cost)} season cost is the cash goal. What a game cost does not
+          change its price.
+        </p>
       </header>
+
+      <section
+        aria-label="How prices work"
+        className="mt-4 rounded-xl border border-line bg-card px-4 py-4 text-sm leading-relaxed text-slate-700"
+      >
+        <h2 className="font-heading text-base text-navy">What you keep</h2>
+        <p className="mt-2">
+          The number on your seats is what you keep per seat. Both seats pay twice that. You keep 95%
+          of the dollar you type in the Wizards box “Set Your Price Per Ticket.” On a $49 price, the
+          seller fee is $2.45, you keep $46.55, and both seats pay $93.10. The buyer pays a higher
+          price than the number you type. This book does not have that buyer total.
+        </p>
+        <p className="mt-2">
+          A suggestion starts from the middle of listings in sections 107, 108, 118, and 119, rows J
+          through T. One lone cheap Section 107 Row P listing is left out of that middle. The
+          suggested number to type is a whole dollar ending in 0 or 5, like $150, $175, or $200. If
+          a dollar ending in 9 would show a smaller first digit than that middle, the suggestion
+          uses it, so $199 instead of $200. A number you type yourself can be any whole dollar. You
+          keep 95% of the dollar you type. Section prices are shown as “listed around.” This book
+          cannot tell a seller’s typed price from a buyer’s all-in price, so it does not guess a
+          buyer total.
+        </p>
+        <p className="mt-2">
+          More than three weeks out, a game marked bigger sits about 10% above that middle. Brokers
+          sometimes use 10–20%. This book uses the smaller step. Inside two weeks, a game marked
+          softer sits about 5% under that middle. Other games stay on the middle, including from
+          about three weeks out to about one week out. A game stays on the middle unless it is marked
+          bigger or softer. There is no view count here, so a quiet listing does not lower the
+          suggestion. Type your own number when you need the seats to move. That saved number stays
+          when the listings or the days until tip change.
+        </p>
+      </section>
 
       <div className="my-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter games">
@@ -509,7 +608,7 @@ export function TicketBook({
       <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:hidden" role="group" aria-label="Sort games">
         {SORT_COLUMNS.map((column) => {
           const active = sort.key === column.key;
-          const label = column.key === "central" ? centralLabel : column.label;
+          const label = column.key === "central" ? (centralLabel === "Mean" ? "Arena average" : "Arena middle") : column.label;
           return (
             <Button
               key={column.key}
@@ -533,14 +632,18 @@ export function TicketBook({
         style={{ touchAction: "pan-x pan-y", zoom: scale }}
       >
         <div className="space-y-2.5">
-          {visible.map(({ game, status }) => (
+          {visible.map(({ game, status, view }) => (
             <GameCard
               key={game.date}
               game={game}
               status={status}
+              view={view}
+              todayEt={todayEt}
               onListed={(checked) => patchStatus(game.date, { listed: checked })}
               onSold={(checked) => patchStatus(game.date, { sold: checked })}
               onDecision={(choice) => setDecision(game.date, choice)}
+              onTypeIn={(typeIn) => saveTypeIn(game.date, typeIn)}
+              onClearPrice={() => clearPrice(game.date)}
             />
           ))}
           {emptyMessage}
@@ -554,7 +657,7 @@ export function TicketBook({
           style={{ touchAction: "pan-x pan-y" }}
         >
           <div style={{ zoom: scale }}>
-            <div className="min-w-[1240px]">
+            <div className="min-w-[1480px]">
               <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -565,10 +668,16 @@ export function TicketBook({
                   <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                   <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
                   <SortableHead column="cash" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="get_in" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead
+                    column="get_in"
+                    label="Arena get-in"
+                    sort={sort}
+                    onSort={chooseSort}
+                    className="sticky top-0 z-10 bg-thead"
+                  />
                   <SortableHead
                     column="central"
-                    label={centralLabel}
+                    label={centralLabel === "Mean" ? "Arena average" : "Arena middle"}
                     sort={sort}
                     onSort={chooseSort}
                     className="sticky top-0 z-10 bg-thead"
@@ -580,15 +689,16 @@ export function TicketBook({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map(({ game, status }) => {
+                {visible.map(({ game, status, view }) => {
                   const prices = buildingPrices(game);
                   return (
-                  <TableRow key={game.date} className={cn(toneRowClass(game.sit_or_sell))}>
+                  <TableRow key={game.date} className={cn("[&>td]:align-top", toneRowClass(game.sit_or_sell))}>
                     <TableCell className="whitespace-nowrap font-semibold">
                       {formatGameDate(game.date, game.weekday)}
                       <span className="block text-xs font-medium text-muted-foreground">
                         {formatYear(game.date)}
                       </span>
+                      <DaysOut date={game.date} todayEt={todayEt} />
                     </TableCell>
                     <TableCell>
                       <span className="font-semibold">{game.opponent}</span>{" "}
@@ -603,11 +713,17 @@ export function TicketBook({
                         onChange={(choice) => setDecision(game.date, choice)}
                       />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {formatMoney(game.advised_ask)}
+                    <TableCell>
+                      <SeatPrice
+                        opponent={game.opponent}
+                        view={view}
+                        showPair={false}
+                        onTypeIn={(typeIn) => saveTypeIn(game.date, typeIn)}
+                        onClear={() => clearPrice(game.date)}
+                      />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {formatMoney(game.cash_both_after_fee)}
+                    <TableCell className="whitespace-nowrap tabular-nums font-semibold">
+                      {formatMoney(view.pair)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums">
                       {formatMoney(prices.getIn)}
@@ -616,7 +732,7 @@ export function TicketBook({
                       {formatMoney(prices.central)}
                       {prices.centralKind === "mean" && centralLabel === "Median" ? (
                         <span className="ml-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Mean
+                          Average
                         </span>
                       ) : null}
                     </TableCell>

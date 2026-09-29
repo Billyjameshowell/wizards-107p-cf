@@ -4,8 +4,11 @@ import {
   cashBothAfterFee,
   goingAskFromListings,
   isCompListing,
+  keepFromTypeIn,
   recomputeBookTotals,
+  sellerFeePerSeat,
   sellBookCash,
+  typeInFromKeep,
   vsSeason,
   type Book,
 } from "@shared/book";
@@ -24,9 +27,28 @@ describe("seed book", () => {
 });
 
 describe("money", () => {
-  it("applies the ~10% Ticketmaster fee to both seats", () => {
-    expect(cashBothAfterFee(235.24)).toBe(423.43);
+  it("keeps 95% of the typed Set Your Price, matching the $49 payout modal", () => {
+    expect(sellerFeePerSeat(49)).toBe(2.45);
+    expect(keepFromTypeIn(49)).toBe(46.55);
+    expect(cashBothAfterFee(49)).toBe(93.1);
+    expect(typeInFromKeep(46.55)).toBe(49);
     expect(cashBothAfterFee(null)).toBeNull();
+  });
+
+  it("does not turn a stored ask into pair cash", () => {
+    const book = recomputeBookTotals({
+      ...(seed as Book),
+      games: [
+        {
+          ...(seed as Book).games[0],
+          sit_or_sell: "Sell",
+          advised_ask: 100,
+          cash_both_after_fee: 180,
+        },
+      ],
+    });
+    expect(book.games[0]?.cash_both_after_fee).toBeNull();
+    expect(book.sell_book_cash).toBe(0);
   });
 
   it("sums sell-book cash and the gap vs $6k", () => {

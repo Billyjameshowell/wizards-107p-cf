@@ -1,6 +1,8 @@
 # Wizards 107P — requirements
 
-Billy owns Capital One Arena **Section 107 Row P seats 1–2**. Season cost is **$6,000**. This Worker app is the live ticket book: sit vs sell, advised ask, cash for both seats after Ticketmaster’s ~10% fee, and the gap vs $6k.
+Billy owns Capital One Arena **Section 107 Row P seats 1–2**. Season cost is **$6,000** (the running cash goal only; it does not pull a game’s price down). This Worker app is the live ticket book: sit vs sell, what he keeps per seat, the number to type into Wizards “Set Your Price,” and the gap vs $6k.
+
+He keeps **95%** of the whole-dollar price he types. That is the seller service fee on the Account Manager payout modal ($49 typed → $2.45 fee → $46.55 kept → $93.10 for the pair). The buyer pays more than the typed price. The book does not invent that buyer total.
 
 The site **does not list tickets**. It tracks status. Nothing is posted to Ticketmaster unless Billy says so.
 
@@ -24,7 +26,7 @@ The site **does not list tickets**. It tracks status. Nothing is posted to Ticke
 
 `SOURCES=seatdata,apify` (comma list). Adapters normalize into the book, then persist.
 
-1. **SeatData** — comps in 107 / 108 / 118 / 119, rows J–T. Going ask = lowest active listing with quantity ≥ 2. Search is free; listings/sales consume pulls.
+1. **SeatData** — comps in 107 / 108 / 118 / 119, rows J–T, quantity ≥ 2. The suggestion uses the median of those listings, and leaves out one lone cheapest Section 107 Row P listing. It does not use the lowest price. Search is free; listings/sales consume pulls.
 2. **Apify** `lentic_clockss/seatgeek-scraper` — cheap list only (`includeListings: false` unless `APIFY_INCLUDE_LISTINGS=true`). Home games at Capital One Arena. Map `lowestPrice` / `medianPrice` / `listingCount`.
 
 Do not invent prices. TicketData scrape and auto-listing are out of scope.

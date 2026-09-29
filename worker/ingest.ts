@@ -25,9 +25,10 @@ function applyPoints(game: Game, points: MarketPoint[]): Game {
     if (point.getIn != null) next.market_get_in = point.getIn;
     if (point.median != null) next.market_median = point.median;
     if (point.listingCount != null) next.listing_count = point.listingCount;
-    if (next.advised_ask == null && point.getIn != null) {
-      next.advised_ask = point.getIn;
-    }
+    if (point.compMedian !== undefined) next.comp_median = point.compMedian;
+    if (point.compCount !== undefined) next.comp_count = point.compCount;
+    if (point.compExcludedDump !== undefined) next.comp_excluded_dump = point.compExcludedDump;
+    // Get-in is the building floor, not the price for these seats.
   }
   return next;
 }
