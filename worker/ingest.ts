@@ -1,9 +1,22 @@
 import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
 import { etDateFrom, parseFlags, type Flags } from "../src/shared/guardrails";
+import {
+  blendCompHistory,
+  mergeToday,
+  type CompObservation,
+} from "../src/shared/price-history";
 import { runApify } from "./adapters/apify";
 import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
-import { loadLiveBook, readSpend, writeBook, writeSpend } from "./store";
+import {
+  loadLiveBook,
+  readCompHistory,
+  readSpend,
+  recordPriceHistory,
+  writeBook,
+  writeSpend,
+  type PriceHistoryWrite,
+} from "./store";
 
 export type IngestTrigger = "cron" | "http";
 
@@ -17,23 +30,136 @@ export type IngestSummary = {
   sources: AdapterResult[];
 };
 
-function applyPoints(game: Game, points: MarketPoint[]): Game {
+function isCompPoint(point: MarketPoint): boolean {
+  return (
+    point.compMedian !== undefined ||
+    point.compCount !== undefined ||
+    point.compExcludedDump !== undefined
+  );
+}
+
+function positive(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+function todayObservation(point: MarketPoint, now: Date, etDate: string): CompObservation {
+  const median = positive(point.compMedian);
+  const compCount =
+    median != null && typeof point.compCount === "number" && point.compCount > 0
+      ? Math.round(point.compCount)
+      : 0;
+  return {
+    pulledAt: now.toISOString(),
+    etDate,
+    median,
+    compCount,
+    excludedDump: point.compExcludedDump === true,
+  };
+}
+
+function historyWrites(results: AdapterResult[], etDate: string, now: Date): PriceHistoryWrite[] {
+  const pulledAt = now.toISOString();
+  const byKey = new Map<string, PriceHistoryWrite>();
+  for (const result of results) {
+    for (const point of result.points) {
+      const row: PriceHistoryWrite | null =
+        result.source === "seatdata" && isCompPoint(point)
+          ? {
+              gameDate: point.date,
+              source: "seatdata",
+              etDate,
+              pulledAt,
+              median: positive(point.compMedian),
+              getIn: null,
+              listingCount: null,
+              compCount:
+                positive(point.compMedian) != null && typeof point.compCount === "number"
+                  ? Math.max(0, Math.round(point.compCount))
+                  : 0,
+              excludedDump: point.compExcludedDump === true,
+            }
+          : result.source === "apify"
+            ? {
+                gameDate: point.date,
+                source: "apify",
+                etDate,
+                pulledAt,
+                median: positive(point.median),
+                getIn: positive(point.getIn),
+                listingCount:
+                  typeof point.listingCount === "number" && point.listingCount >= 0
+                    ? Math.round(point.listingCount)
+                    : null,
+                compCount: null,
+                excludedDump: false,
+              }
+            : null;
+      if (!row) continue;
+      byKey.set(`${row.gameDate}|${row.source}|${row.etDate}`, row);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * A typed price lives in the browser. This never writes one.
+ * SeatData updates the band middle. Apify may update the arena get-in and
+ * median, which the suggestion does not use.
+ */
+function applyPoints(
+  game: Game,
+  points: MarketPoint[],
+  history: ReadonlyMap<string, CompObservation[]>,
+  now: Date,
+  etDate: string,
+): Game {
   const next = { ...game };
+  let compPoint: MarketPoint | undefined;
   for (const point of points) {
     if (point.date !== game.date) continue;
     if (point.advisedAsk != null) next.advised_ask = point.advisedAsk;
     if (point.getIn != null) next.market_get_in = point.getIn;
     if (point.median != null) next.market_median = point.median;
     if (point.listingCount != null) next.listing_count = point.listingCount;
-    if (point.compMedian !== undefined) next.comp_median = point.compMedian;
-    if (point.compCount !== undefined) next.comp_count = point.compCount;
-    if (point.compExcludedDump !== undefined) next.comp_excluded_dump = point.compExcludedDump;
-    // Get-in is the building floor, not the price for these seats.
+    if (isCompPoint(point)) compPoint = point;
+  }
+  if (!compPoint) return next;
+
+  const today = todayObservation(compPoint, now, etDate);
+  const priorRows = history.get(game.date) ?? [];
+  const blend = blendCompHistory(mergeToday(priorRows, today), now);
+  const keepStored =
+    blend.median == null &&
+    priorRows.length === 0 &&
+    typeof game.comp_median === "number" &&
+    game.comp_median > 0;
+
+  next.comp_snapshot_median = today.median;
+  next.comp_count = today.compCount;
+  next.comp_excluded_dump = today.excludedDump;
+  next.comp_checked_at = now.toISOString();
+  if (keepStored) {
+    next.comp_median = game.comp_median;
+    next.comp_held_prior = true;
+    next.comp_pulls = game.comp_pulls ?? 1;
+    next.comp_confidence = game.comp_confidence ?? "thin";
+  } else {
+    next.comp_median = blend.median;
+    next.comp_held_prior = blend.heldPrior;
+    next.comp_pulls = blend.pulls;
+    next.comp_confidence = blend.confidence;
   }
   return next;
 }
 
-function mergeBook(book: Book, results: AdapterResult[], now: Date): Book {
+export function mergeBook(
+  book: Book,
+  results: AdapterResult[],
+  now: Date,
+  history: ReadonlyMap<string, CompObservation[]> = new Map(),
+): Book {
+  const etDate = etDateFrom(now);
   const byDate = new Map<string, MarketPoint[]>();
   for (const result of results) {
     for (const point of result.points) {
@@ -42,7 +168,9 @@ function mergeBook(book: Book, results: AdapterResult[], now: Date): Book {
       byDate.set(point.date, list);
     }
   }
-  const games = book.games.map((game) => applyPoints(game, byDate.get(game.date) ?? []));
+  const games = book.games.map((game) =>
+    applyPoints(game, byDate.get(game.date) ?? [], history, now, etDate),
+  );
   return recomputeBookTotals({
     ...book,
     games,
@@ -135,7 +263,18 @@ export async function runIngest(
   const hasPoints = sources.some((result) => result.points.length > 0);
   let nextBook = book;
   if (hasPoints) {
-    nextBook = mergeBook(book, sources, now);
+    let history = new Map<string, CompObservation[]>();
+    try {
+      await recordPriceHistory(env, historyWrites(sources, etDate, now), now);
+    } catch (error) {
+      console.error("price history write", error);
+    }
+    try {
+      history = await readCompHistory(env);
+    } catch (error) {
+      console.error("price history read", error);
+    }
+    nextBook = mergeBook(book, sources, now, history);
     await writeBook(env, nextBook);
   }
 

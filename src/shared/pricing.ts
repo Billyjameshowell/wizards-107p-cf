@@ -8,6 +8,7 @@ import {
   type CompListing,
   type Game,
 } from "./book";
+import { compHistoryNote, type CompConfidence } from "./price-history";
 
 /**
  * Pricing for Billy’s Section 107 Row P seats 1–2.
@@ -23,6 +24,11 @@ import {
  * buyer’s all-in price. The suggestion therefore shows that middle as
  * “listed around” and turns it into a type-in / you-keep pair using only the 5%
  * seller fee. It does not invent a buyer markup.
+ *
+ * The middle is the blended SeatData band, not the arena median. Recent checks
+ * count more. A thin morning stays near those recent prices. A busy morning
+ * follows the live middle. The day rules below still apply to that blended
+ * middle. A number he typed is still never replaced.
  *
  * Suggestion vs that listed middle (the type-in, before the 5% fee):
  * - Default is the middle itself. Do not start under it.
@@ -84,6 +90,10 @@ export type Suggestion = {
   stance: Stance;
   label: string;
   daysOut: number | null;
+  /** This morning had no usable comps. The middle is from recent checks. */
+  heldPrior: boolean;
+  /** Quiet explanation once more than one check is saved. */
+  historyNote: string | null;
 };
 
 export type SeatPriceView = {
@@ -309,6 +319,8 @@ export function suggestFromMedian(args: {
     stance,
     label: stanceLabel(stance, args.demand, daysOut),
     daysOut,
+    heldPrior: false,
+    historyNote: null,
   };
 }
 
@@ -342,6 +354,44 @@ export function compCountOf(game: Game): number | null {
   const raw = game.comp_count ?? gameRecord(game).compCount ?? details?.comp_count ?? details?.compCount;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return null;
   return raw;
+}
+
+export function compPullsOf(game: Game): number {
+  const details = detailRecord(game);
+  const raw = game.comp_pulls ?? gameRecord(game).compPulls ?? details?.comp_pulls ?? details?.compPulls;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return 0;
+  return Math.round(raw);
+}
+
+export function compConfidenceOf(game: Game): CompConfidence | null {
+  const details = detailRecord(game);
+  const raw =
+    game.comp_confidence ??
+    gameRecord(game).compConfidence ??
+    details?.comp_confidence ??
+    details?.compConfidence;
+  if (raw === "thin" || raw === "building" || raw === "solid") return raw;
+  return null;
+}
+
+export function heldPriorOf(game: Game): boolean {
+  const details = detailRecord(game);
+  const raw =
+    game.comp_held_prior ??
+    gameRecord(game).compHeldPrior ??
+    details?.comp_held_prior ??
+    details?.compHeldPrior;
+  return raw === true;
+}
+
+export function snapshotMedianOf(game: Game): number | null {
+  const details = detailRecord(game);
+  return (
+    moneyField(game.comp_snapshot_median) ??
+    moneyField(gameRecord(game).compSnapshotMedian) ??
+    moneyField(details?.comp_snapshot_median) ??
+    moneyField(details?.compSnapshotMedian)
+  );
 }
 
 export function excludedDumpOf(game: Game): boolean {
@@ -381,8 +431,12 @@ export function resolveSeatPrice(args: {
   daysOut: number | null;
   demand: Demand | null;
   savedTypeIn: number | null;
+  pulls?: number | null;
+  confidence?: CompConfidence | null;
+  heldPrior?: boolean;
+  snapshotMedian?: number | null;
 }): SeatPriceView {
-  const suggestion =
+  const base =
     args.listedMedian != null && args.listedMedian > 0
       ? suggestFromMedian({
           listedMedian: args.listedMedian,
@@ -392,6 +446,20 @@ export function resolveSeatPrice(args: {
           excludedDump: args.excludedDump,
         })
       : null;
+  const heldPrior = args.heldPrior === true;
+  const suggestion = base
+    ? {
+        ...base,
+        heldPrior,
+        historyNote: compHistoryNote({
+          pulls: args.pulls ?? 0,
+          confidence: args.confidence ?? null,
+          heldPrior,
+          snapshotMedian: args.snapshotMedian ?? null,
+          blendedMedian: base.listedMedian,
+        }),
+      }
+    : null;
   const saved =
     args.savedTypeIn != null && Number.isFinite(args.savedTypeIn) && args.savedTypeIn > 0
       ? Math.max(1, roundDollar(args.savedTypeIn))
@@ -426,5 +494,9 @@ export function seatPriceForGame(
     daysOut: daysUntil(game.date, todayEt),
     demand: demandOf(game),
     savedTypeIn,
+    pulls: compPullsOf(game),
+    confidence: compConfidenceOf(game),
+    heldPrior: heldPriorOf(game),
+    snapshotMedian: snapshotMedianOf(game),
   });
 }

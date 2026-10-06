@@ -206,13 +206,25 @@ export function SeatPrice({
       {suggestion ? (
         <div className="mt-2 space-y-1">
           <p className="text-[13px] leading-snug text-muted-foreground">
-            Listed around {formatMoney(suggestion.listedMedian)} for similar lower-bowl seats
-            {suggestion.compCount != null && suggestion.compCount > 0
-              ? ` · ${suggestion.compCount} ${suggestion.compCount === 1 ? "listing" : "listings"}`
-              : ""}
+            {suggestion.heldPrior ? (
+              <>
+                No similar seats listed today. Recent ones were around{" "}
+                {formatMoney(suggestion.listedMedian)}
+              </>
+            ) : (
+              <>
+                Listed around {formatMoney(suggestion.listedMedian)} for similar lower-bowl seats
+                {suggestion.compCount != null && suggestion.compCount > 0
+                  ? ` · ${suggestion.compCount} ${suggestion.compCount === 1 ? "listing" : "listings"}`
+                  : ""}
+              </>
+            )}
             {suggestion.excludedDump ? " · left out one cheap 107P listing" : ""}
           </p>
           <p className="text-xs leading-snug text-muted-foreground">{suggestion.label}</p>
+          {suggestion.historyNote ? (
+            <p className="text-xs leading-snug text-muted-foreground">{suggestion.historyNote}</p>
+          ) : null}
         </div>
       ) : null}
       {view.hasSaved ? (

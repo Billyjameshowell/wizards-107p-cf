@@ -1,4 +1,5 @@
 import { type CompListing } from "../../src/shared/book";
+import { orderGamesForCompPull } from "../../src/shared/price-history";
 import { seriousCompMedian } from "../../src/shared/pricing";
 import {
   canStartPaidSource,
@@ -49,20 +50,10 @@ async function seatdataFetch(
   });
 }
 
-function prioritizeDates(games: AdapterContext["games"], now: Date): string[] {
+export function prioritizeDates(games: AdapterContext["games"], now: Date): string[] {
   const today = now.toISOString().slice(0, 10);
-  return [...games]
-    .filter((game) => game.date >= today && game.sit_or_sell !== "TBD")
-    .sort((a, b) => {
-      const aNeed = a.advised_ask == null ? 0 : 1;
-      const bNeed = b.advised_ask == null ? 0 : 1;
-      if (aNeed !== bNeed) return aNeed - bNeed;
-      const aSell = a.sit_or_sell === "Sell" ? 0 : 1;
-      const bSell = b.sit_or_sell === "Sell" ? 0 : 1;
-      if (aSell !== bSell) return aSell - bSell;
-      return a.date.localeCompare(b.date);
-    })
-    .map((game) => game.date);
+  const open = games.filter((game) => game.date >= today && game.sit_or_sell !== "TBD");
+  return orderGamesForCompPull(open, now).map((game) => game.date);
 }
 
 export async function runSeatData(
@@ -141,6 +132,8 @@ export async function runSeatData(
 
   for (const date of dates) {
     const event = byDate.get(date);
+    // No event yet: leave the game at "No price yet" and do not spend a pull.
+    // The next run that sees the event can fill it, because unchecked games go first.
     if (!event?.event_id) continue;
 
     const pullGate = canTakeSeatDataPull({

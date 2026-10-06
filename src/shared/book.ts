@@ -10,10 +10,23 @@ export type Game = {
   advised_ask: number | null;
   /** Pair cash is computed in the browser from the type-in he is using. */
   cash_both_after_fee: number | null;
-  /** Middle of serious 107/108/118/119 rows J–T listings, after the cheap 107P dump rule. */
+  /**
+   * Middle the suggestion uses. Serious 107/108/118/119 rows J–T listings,
+   * after the cheap 107P dump rule, blended with recent checks of that band.
+   */
   comp_median?: number | null;
   comp_count?: number | null;
   comp_excluded_dump?: boolean;
+  /** This morning’s raw middle, before recent checks are blended in. */
+  comp_snapshot_median?: number | null;
+  /** How many saved checks had a usable middle. */
+  comp_pulls?: number | null;
+  /** "thin" | "building" | "solid" */
+  comp_confidence?: string | null;
+  /** This morning had no usable comps, so the middle is from recent checks. */
+  comp_held_prior?: boolean;
+  /** ISO time of the last listings check. Not shown on the book. */
+  comp_checked_at?: string | null;
   /** "bigger" | "soft" | "standard" when a game is actually marked. Absent means no tier. */
   demand?: string | null;
   listed: boolean;
