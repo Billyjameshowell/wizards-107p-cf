@@ -68,16 +68,21 @@ function ScenarioToggle({
   value,
   opponent,
   onChange,
+  wide = false,
 }: {
   value: string;
   opponent: string;
   onChange: (choice: ScenarioChoice) => void;
+  wide?: boolean;
 }) {
   return (
     <div
       role="group"
-      aria-label={`What-if scenario for ${opponent}`}
-      className="inline-flex rounded-lg border border-line bg-white/80 p-0.5"
+      aria-label={`Sit or sell for ${opponent}`}
+      className={cn(
+        "grid grid-cols-2 gap-1 rounded-xl bg-white p-1 shadow-[0_1px_1px_rgba(12,35,64,0.05)] ring-1 ring-[#d5cfc3]",
+        wide ? "w-full max-w-sm" : "w-[11.5rem]",
+      )}
     >
       {(["Sit", "Sell"] as const).map((choice) => {
         const selected = value === choice;
@@ -87,10 +92,10 @@ function ScenarioToggle({
             type="button"
             aria-pressed={selected}
             className={cn(
-              "min-h-11 min-w-11 rounded-md px-2.5 text-sm font-bold lg:min-h-8",
-              selected && choice === "Sit" && "bg-sit text-sit-ink",
-              selected && choice === "Sell" && "bg-sell text-sell-ink",
-              !selected && "text-muted-foreground",
+              "min-h-12 rounded-lg px-2 text-base font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy/40 lg:min-h-10 lg:text-sm",
+              selected && choice === "Sit" && "bg-sit-ink text-white shadow-sm",
+              selected && choice === "Sell" && "bg-sell-ink text-white shadow-sm",
+              !selected && "text-[#243044] hover:bg-[#f4f1ea]",
             )}
             onClick={() => onChange(choice)}
           >
@@ -105,7 +110,7 @@ function ScenarioToggle({
 function PreseasonMark({ type }: { type: string }) {
   if (type !== "preseason") return null;
   return (
-    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-navy">
       Preseason
     </span>
   );
@@ -125,10 +130,10 @@ function StatusCheck({
   showLabel?: boolean;
 }) {
   return (
-    <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap lg:min-h-0">
+    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap lg:min-h-8">
       <input
         type="checkbox"
-        className="size-3.5 accent-navy"
+        className="size-4 accent-navy"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
@@ -186,7 +191,7 @@ function SortableHead({
     >
       <button
         type="button"
-        className="inline-flex items-center gap-1 text-left font-medium select-none"
+        className="inline-flex items-center gap-1 text-left text-xs font-semibold text-navy select-none"
         onClick={() => onSort(column)}
       >
         {heading}
@@ -215,11 +220,20 @@ function TicketDataLink({ href }: { href: string | null }) {
   );
 }
 
-function PriceStat({ label, value }: { label: string; value: number | null }) {
+function PriceStat({
+  label,
+  caption,
+  value,
+}: {
+  label: string;
+  caption?: string;
+  value: number | null;
+}) {
   return (
-    <div className="min-w-0">
-      <dt className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 font-semibold tabular-nums">{formatMoney(value)}</dd>
+    <div className="min-w-0 bg-[#faf8f4] px-3.5 py-2.5">
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
+      {caption ? <p className="text-[11px] leading-tight text-muted-foreground">{caption}</p> : null}
+      <dd className="mt-0.5 text-sm font-semibold tabular-nums text-foreground/80">{formatMoney(value)}</dd>
     </div>
   );
 }
@@ -228,6 +242,13 @@ function DaysOut({ date, todayEt }: { date: string; todayEt: string }) {
   const days = daysUntil(date, todayEt);
   if (days == null) return null;
   return <span className="block text-xs font-semibold text-navy">{formatDaysOut(days)}</span>;
+}
+
+function cardAccent(value: string): string {
+  const tone = decisionTone(value);
+  if (tone === "sit") return "border-l-[5px] border-l-sit-ink";
+  if (tone === "sell") return "border-l-[5px] border-l-sell-ink";
+  return "border-l-[5px] border-l-tbd-ink";
 }
 
 function GameCard({
@@ -253,23 +274,29 @@ function GameCard({
 }) {
   const prices = buildingPrices(game);
   return (
-    <article className={cn("rounded-xl border border-line px-3 py-3", toneRowClass(game.sit_or_sell))}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-semibold leading-tight">{formatGameDate(game.date, game.weekday)}</p>
-          <p className="text-xs font-medium text-muted-foreground">{formatYear(game.date)}</p>
+    <article
+      className={cn(
+        "overflow-hidden rounded-2xl border border-line bg-card shadow-[0_1px_2px_rgba(12,35,64,0.06)]",
+        cardAccent(game.sit_or_sell),
+      )}
+    >
+      <div className={cn("px-3.5 py-3", toneRowClass(game.sit_or_sell))}>
+        <h2 className="text-[1.2rem] font-semibold leading-tight tracking-tight text-navy">
+          {game.opponent}
+        </h2>
+        <p className="mt-1 text-sm text-[#3d4654]">
+          {formatGameDate(game.date, game.weekday)} {formatYear(game.date)} · {game.time_et} ET
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <DaysOut date={game.date} todayEt={todayEt} />
+          <PreseasonMark type={game.type} />
         </div>
-        <ScenarioToggle value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
+        <div className="mt-2.5">
+          <ScenarioToggle wide value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
+        </div>
       </div>
 
-      <p className="mt-2 text-base font-semibold leading-snug break-words">{game.opponent}</p>
-      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
-        <span>{game.time_et} ET</span>
-        <PreseasonMark type={game.type} />
-      </p>
-
-      <div className="mt-3">
+      <div className="border-t border-line bg-white px-3.5 py-3.5">
         <SeatPrice
           opponent={game.opponent}
           view={view}
@@ -279,15 +306,16 @@ function GameCard({
         />
       </div>
 
-      <dl className="mt-3 grid max-w-md grid-cols-2 gap-3">
-        <PriceStat label="Arena get-in" value={prices.getIn} />
+      <dl className="grid grid-cols-2 gap-px border-t border-line bg-line">
+        <PriceStat label="Cheapest in the arena" caption="Not your seats" value={prices.getIn} />
         <PriceStat
-          label={prices.centralKind === "mean" ? "Arena average" : "Arena middle"}
+          label={prices.centralKind === "mean" ? "Arena average" : "Middle of the arena"}
+          caption="Whole building"
           value={prices.central}
         />
       </dl>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-3.5 py-2 text-sm">
         <StatusCheck
           label="Listed"
           name={game.opponent}
@@ -305,12 +333,11 @@ function GameCard({
         <TicketDataLink href={game.ticketdata_url} />
       </div>
 
-      <p className="mt-2 text-sm leading-snug break-words text-slate-700">
-        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-          Notes
-        </span>
-        <span className="mt-0.5 block">{status.notes || "—"}</span>
-      </p>
+      {status.notes ? (
+        <p className="border-t border-line px-3.5 py-2.5 text-sm leading-snug text-muted-foreground">
+          {status.notes}
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -446,6 +473,15 @@ export function TicketBook({
     writeLocalStatus({});
   }
 
+  const nextGame = games.find((game) => game.date >= todayEt) ?? null;
+  const openSell = rows.filter(
+    (row) => row.game.sit_or_sell === "Sell" && row.view.typeIn == null,
+  ).length;
+  const cashLine =
+    summary.sellCash === 0
+      ? `Nothing in yet toward ${formatMoney(book.season_cost)}`
+      : `${formatMoney(summary.sellCash)} toward ${formatMoney(book.season_cost)}`;
+
   const emptyMessage =
     visible.length === 0 ? (
       <div className="px-4 py-7 text-center text-muted-foreground">No games match this filter.</div>
@@ -453,93 +489,65 @@ export function TicketBook({
 
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
-      <header className="rounded-xl bg-navy px-4 py-4 text-navy-foreground sm:px-5 sm:py-5">
+      <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
         <div className="flex items-start justify-between gap-3">
-          <p className="m-0 text-[12px] leading-snug uppercase tracking-[0.08em] text-gold">
+          <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
             Capital One Arena · Section {book.section} Row {book.row} · seats {book.seats.join("–")}
           </p>
           <nav aria-label="Site" className="shrink-0">
             <a
               href="/admin"
-              className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-gold underline decoration-gold/80 underline-offset-4"
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-[#f3e6c8] underline decoration-[#f3e6c8]/70 underline-offset-4"
             >
               Admin
             </a>
           </nav>
         </div>
-        <h1 className="font-heading mt-1 text-[22px] tracking-tight sm:text-[28px]">Wizards 107P</h1>
-        <p className="mt-1.5 text-sm leading-snug text-navy-muted">
-          Season ticket desk · prices as of {book.asof_et} ET · season goal{" "}
-          {formatMoney(book.season_cost)} · {book.games.length} home games
-        </p>
-        <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-gold">
-          What-if scenario · does not list tickets
-        </p>
-        <ul className="mt-2 grid list-none gap-2.5 p-0 sm:grid-cols-3">
-          <li className="rounded-lg bg-white/5 px-3 py-2.5">
-            <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
-              You keep on Sell games
-            </p>
-            <p className="mt-1 text-lg font-semibold tracking-tight">{formatMoney(summary.sellCash)}</p>
-          </li>
-          <li className="rounded-lg bg-white/5 px-3 py-2.5">
-            <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
-              Vs {formatMoney(book.season_cost)}
-            </p>
-            <p className="mt-1 text-lg font-semibold tracking-tight leading-snug">
-              {formatShortfall(summary.vsSeason, book.season_cost)}
-            </p>
-          </li>
-          <li className="rounded-lg bg-white/5 px-3 py-2.5">
-            <p className="m-0 text-[11px] font-medium uppercase tracking-[0.06em] text-navy-muted">
-              Sell vs Sit
-            </p>
-            <p className="mt-1 text-lg font-semibold tracking-tight leading-snug">
-              {summary.sellCount} Sell · {summary.sitCount} Sit
-              {summary.tbdCount > 0 ? ` · ${summary.tbdCount} TBD` : ""}
-            </p>
-          </li>
-        </ul>
-        <p className="mt-3 text-sm leading-snug text-navy-muted">
-          The {formatMoney(book.season_cost)} season cost is the cash goal. What a game cost does not
-          change its price.
+        <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Wizards 107P</h1>
+        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
+          Prices as of {book.asof_et} ET · {book.games.length} home games
         </p>
       </header>
 
       <section
-        aria-label="How prices work"
-        className="mt-4 rounded-xl border border-line bg-card px-4 py-4 text-sm leading-relaxed text-slate-700"
+        aria-label="Season summary"
+        className="sticky top-0 z-40 -mx-3 mt-3 border-y border-line bg-[#f4f1ea]/95 px-3 py-2 shadow-[0_8px_18px_rgba(12,35,64,0.06)] backdrop-blur-md sm:-mx-4 sm:px-4 lg:static lg:rounded-xl lg:border lg:px-4 lg:py-3 lg:shadow-none lg:backdrop-blur-none"
       >
-        <h2 className="font-heading text-base text-navy">What you keep</h2>
-        <p className="mt-2">
-          The number on your seats is what you keep per seat. Both seats pay twice that. You keep 95%
-          of the dollar you type in the Wizards box “Set Your Price Per Ticket.” On a $49 price, the
-          seller fee is $2.45, you keep $46.55, and both seats pay $93.10. The buyer pays a higher
-          price than the number you type. This book does not have that buyer total.
-        </p>
-        <p className="mt-2">
-          A suggestion starts from the middle of listings in sections 107, 108, 118, and 119, rows J
-          through T. One lone cheap Section 107 Row P listing is left out of that middle. The
-          suggested number to type is a whole dollar ending in 0 or 5, like $150, $175, or $200. If
-          a dollar ending in 9 would show a smaller first digit than that middle, the suggestion
-          uses it, so $199 instead of $200. A number you type yourself can be any whole dollar. You
-          keep 95% of the dollar you type. Section prices are shown as “listed around.” This book
-          cannot tell a seller’s typed price from a buyer’s all-in price, so it does not guess a
-          buyer total.
-        </p>
-        <p className="mt-2">
-          More than three weeks out, a game marked bigger sits about 10% above that middle. Brokers
-          sometimes use 10–20%. This book uses the smaller step. Inside two weeks, a game marked
-          softer sits about 5% under that middle. Other games stay on the middle, including from
-          about three weeks out to about one week out. A game stays on the middle unless it is marked
-          bigger or softer. There is no view count here, so a quiet listing does not lower the
-          suggestion. Type your own number when you need the seats to move. That saved number stays
-          when the listings or the days until tip change.
-        </p>
+        <div className="flex flex-col gap-1 lg:flex-row lg:flex-wrap lg:items-baseline lg:justify-between lg:gap-x-6">
+          <p className="text-[15px] font-semibold leading-snug text-navy">
+            {summary.sellCount} {summary.sellCount === 1 ? "game" : "games"} on Sell
+            <span className="font-medium text-muted-foreground">
+              {" "}
+              · {summary.sitCount} Sit
+              {summary.tbdCount > 0 ? ` · ${summary.tbdCount} TBD` : ""}
+              {openSell > 0 ? ` · ${openSell} without a price` : ""}
+            </span>
+          </p>
+          <p className="text-sm leading-snug text-[#3d4654]">
+            <span className="text-lg font-bold tabular-nums text-navy">{cashLine}</span>
+            {summary.sellCash > 0 ? (
+              <span className="text-muted-foreground"> · {formatShortfall(summary.vsSeason, book.season_cost)}</span>
+            ) : null}
+          </p>
+          {nextGame ? (
+            <p className="text-sm leading-snug text-muted-foreground">
+              Next tip{" "}
+              <span className="font-semibold text-foreground">
+                {formatGameDate(nextGame.date, nextGame.weekday)} · {nextGame.opponent}
+              </span>
+              {" · "}
+              {nextGame.time_et} ET
+            </p>
+          ) : null}
+        </div>
       </section>
 
-      <div className="my-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter games">
+      <div className="my-3 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+        <div
+          className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
+          role="group"
+          aria-label="Filter games"
+        >
           {FILTERS.map((item) => (
             <Button
               key={item.id}
@@ -547,13 +555,14 @@ export function TicketBook({
               size="sm"
               variant={filter === item.id ? "default" : "outline"}
               aria-pressed={filter === item.id}
+              className="h-11 shrink-0 px-3.5 lg:h-8"
               onClick={() => setFilter(item.id)}
             >
               {item.label}
             </Button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0">
           <span className="text-sm text-muted-foreground">
             {visible.length} of {book.games.length}
           </span>
@@ -561,7 +570,7 @@ export function TicketBook({
             {copyLabel}
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={clearLocal}>
-            Clear local status
+            Clear listed and sold
           </Button>
           <Button
             type="button"
@@ -570,12 +579,17 @@ export function TicketBook({
             onClick={resetScenario}
             disabled={Object.keys(scenario).length === 0}
           >
-            Reset scenario
+            Reset Sit and Sell
           </Button>
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div
+        className={cn(
+          "mb-3 flex-wrap items-center justify-between gap-2",
+          scale === 1 ? "hidden lg:flex" : "flex",
+        )}
+      >
         <p className="text-xs text-muted-foreground">Pinch or Ctrl+scroll to resize. Scroll still moves the list.</p>
         <div className="flex items-center gap-1.5" role="group" aria-label="Table size">
           <Button
@@ -616,7 +630,7 @@ export function TicketBook({
               size="sm"
               variant={active ? "default" : "outline"}
               aria-pressed={active}
-              className="shrink-0"
+              className="h-11 shrink-0 px-3 lg:h-8"
               onClick={() => chooseSort(column.key)}
             >
               {label}
@@ -631,7 +645,7 @@ export function TicketBook({
         className="lg:hidden"
         style={{ touchAction: "pan-x pan-y", zoom: scale }}
       >
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {visible.map(({ game, status, view }) => (
             <GameCard
               key={game.date}
@@ -657,42 +671,46 @@ export function TicketBook({
           style={{ touchAction: "pan-x pan-y" }}
         >
           <div style={{ zoom: scale }}>
-            <div className="min-w-[1480px]">
-              <Table>
+            <div className="min-w-[1620px]">
+              <Table className="ticket-table">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <SortableHead column="date" sort={sort} onSort={chooseSort} className="sticky top-0 z-20 bg-thead" />
-                  <SortableHead column="opponent" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="type" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="time" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="cash" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="date" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="opponent" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="type" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="time" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="cash" sort={sort} onSort={chooseSort} className="bg-thead" />
                   <SortableHead
                     column="get_in"
-                    label="Arena get-in"
+                    label="Cheapest in the arena"
                     sort={sort}
                     onSort={chooseSort}
-                    className="sticky top-0 z-10 bg-thead"
+                    className="bg-thead"
                   />
                   <SortableHead
                     column="central"
-                    label={centralLabel === "Mean" ? "Arena average" : "Arena middle"}
+                    label={centralLabel === "Mean" ? "Arena average" : "Middle of the arena"}
                     sort={sort}
                     onSort={chooseSort}
-                    className="sticky top-0 z-10 bg-thead"
+                    className="bg-thead"
                   />
-                  <SortableHead column="listed" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="sold" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="ticketdata" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
-                  <SortableHead column="notes" sort={sort} onSort={chooseSort} className="sticky top-0 z-10 bg-thead" />
+                  <SortableHead column="listed" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="sold" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="ticketdata" sort={sort} onSort={chooseSort} className="bg-thead" />
+                  <SortableHead column="notes" sort={sort} onSort={chooseSort} className="bg-thead" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visible.map(({ game, status, view }) => {
                   const prices = buildingPrices(game);
                   return (
-                  <TableRow key={game.date} className={cn("[&>td]:align-top", toneRowClass(game.sit_or_sell))}>
+                  <TableRow
+                    key={game.date}
+                    data-tone={decisionTone(game.sit_or_sell)}
+                    className={cn("[&>td]:align-top [&>td]:py-3", toneRowClass(game.sit_or_sell))}
+                  >
                     <TableCell className="whitespace-nowrap font-semibold">
                       {formatGameDate(game.date, game.weekday)}
                       <span className="block text-xs font-medium text-muted-foreground">
@@ -701,11 +719,11 @@ export function TicketBook({
                       <DaysOut date={game.date} todayEt={todayEt} />
                     </TableCell>
                     <TableCell>
-                      <span className="font-semibold">{game.opponent}</span>{" "}
+                      <span className="font-semibold text-navy">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />
                     </TableCell>
-                    <TableCell>{formatType(game.type)}</TableCell>
-                    <TableCell>{game.time_et}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatType(game.type)}</TableCell>
+                    <TableCell className="text-muted-foreground">{game.time_et}</TableCell>
                     <TableCell>
                       <ScenarioToggle
                         value={game.sit_or_sell}
@@ -722,16 +740,20 @@ export function TicketBook({
                         onClear={() => clearPrice(game.date)}
                       />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums font-semibold">
-                      {formatMoney(view.pair)}
+                    <TableCell className="whitespace-nowrap">
+                      {view.pair == null ? (
+                        <span className="text-sm font-medium text-muted-foreground">No price yet</span>
+                      ) : (
+                        <span className="text-lg font-bold tabular-nums text-navy">{formatMoney(view.pair)}</span>
+                      )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
                       {formatMoney(prices.getIn)}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
                       {formatMoney(prices.central)}
                       {prices.centralKind === "mean" && centralLabel === "Median" ? (
-                        <span className="ml-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <span className="ml-1 text-[11px] font-medium uppercase tracking-wide">
                           Average
                         </span>
                       ) : null}
@@ -755,7 +777,7 @@ export function TicketBook({
                     <TableCell>
                       <TicketDataLink href={game.ticketdata_url} />
                     </TableCell>
-                    <TableCell className="max-w-[220px] whitespace-normal text-slate-700">
+                    <TableCell className="max-w-[220px] whitespace-normal text-sm text-muted-foreground">
                       {status.notes || "—"}
                     </TableCell>
                   </TableRow>
@@ -768,6 +790,33 @@ export function TicketBook({
           {emptyMessage}
         </div>
       </Card>
+
+      <details className="mt-4 rounded-xl border border-line bg-card px-4 py-3 text-sm leading-relaxed text-[#3d4654]">
+        <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-navy">
+          How a price is figured
+        </summary>
+        <div className="mt-3 space-y-2">
+          <p>
+            You keep 95% of the dollar you type in Wizards Account Manager, per seat. Both seats are
+            twice that. On a $49 type-in, the seller fee is $2.45, you keep $46.55, and both seats
+            pay $93.10. The buyer pays more than the number you type. This book does not have that
+            buyer total. Sit or Sell here only updates this book.
+          </p>
+          <p>
+            Listed around is the middle of similar lower-bowl seats: sections 107, 108, 118, and 119,
+            rows J through T. One lone cheap Section 107 Row P listing is left out. The suggested
+            number to type is a whole dollar ending in 0 or 5, like $150, $175, or $200. A dollar
+            ending in 9 is used only when it shows a smaller first digit, so $199 instead of $200. A
+            number you type yourself can be any whole dollar, and it stays when the listings or the
+            days until tip change.
+          </p>
+          <p>
+            More than three weeks out, a bigger game sits about 10% above that middle. Inside two
+            weeks, a softer game sits about 5% under it. Other games stay on the middle. The $6,000
+            season goal does not change a game’s price.
+          </p>
+        </div>
+      </details>
     </div>
   );
 }
