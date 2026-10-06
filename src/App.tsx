@@ -35,8 +35,21 @@ export default function App() {
 
   if (!book) {
     return (
-      <div className="mx-auto max-w-xl px-4 py-16 text-center text-muted-foreground">
-        Loading the book…
+      <div
+        className="mx-auto max-w-[1180px] px-3 pt-4 sm:px-4 sm:pt-5"
+        aria-busy="true"
+        aria-live="polite"
+      >
+        <p className="sr-only">Opening the book</p>
+        <div className="h-32 animate-pulse rounded-2xl bg-navy/90" />
+        <div className="mt-3 h-16 animate-pulse rounded-xl bg-white ring-1 ring-line" />
+        <div className="mt-4 space-y-3 lg:hidden">
+          <div className="h-44 animate-pulse rounded-2xl bg-white ring-1 ring-line" />
+          <div className="h-44 animate-pulse rounded-2xl bg-white ring-1 ring-line" />
+          <div className="h-44 animate-pulse rounded-2xl bg-white ring-1 ring-line" />
+        </div>
+        <div className="mt-4 hidden h-[420px] animate-pulse rounded-xl bg-white ring-1 ring-line lg:block" />
+        <p className="mt-4 text-center text-sm text-muted-foreground">Opening the book…</p>
       </div>
     );
   }

@@ -1,7 +1,5 @@
-import {
-  goingAskFromListings,
-  type CompListing,
-} from "../../src/shared/book";
+import { type CompListing } from "../../src/shared/book";
+import { seriousCompMedian } from "../../src/shared/pricing";
 import {
   canStartPaidSource,
   canTakeSeatDataPull,
@@ -186,10 +184,15 @@ export async function runSeatData(
       spend.sources.seatdata = recordSeatDataPull(spend.sources.seatdata, etDate);
     }
 
-    const ask = goingAskFromListings(body.listings ?? []);
-    if (ask != null) {
-      points.push({ date, advisedAsk: ask });
-    }
+    // listing.price has no all-in flag in this client. The middle is stored as
+    // “listed around” and the page turns it into you-keep with the 5% seller fee only.
+    const snapshot = seriousCompMedian(body.listings ?? []);
+    points.push({
+      date,
+      compMedian: snapshot.median,
+      compCount: snapshot.count,
+      compExcludedDump: snapshot.excludedDump,
+    });
   }
 
   return {

@@ -2,7 +2,7 @@
 
 Season ticket desk for Billy’s Washington Wizards seats — Capital One Arena **Section 107 Row P, seats 1–2**. Season cost is **$6,000**.
 
-The page lists every home game with Sit vs Sell, the advised ask from the latest market pull, cash for both seats after Ticketmaster’s ~10% fee, and whether the pair is listed or sold.
+The page lists every home game with Sit vs Sell, what Billy keeps per seat, the whole-dollar number to type into Wizards “Set Your Price Per Ticket,” and whether the pair is listed or sold. He keeps 95% of that typed price (the seller fee on the Account Manager payout modal). Both seats pay twice the keep. A saved price stays when listings refresh.
 
 **List nothing until Billy says so.** This site tracks status. It does not post listings to Ticketmaster.
 

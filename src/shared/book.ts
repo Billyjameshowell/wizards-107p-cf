@@ -8,7 +8,14 @@ export type Game = {
   type: string;
   sit_or_sell: SitOrSell | string;
   advised_ask: number | null;
+  /** Pair cash is computed in the browser from the type-in he is using. */
   cash_both_after_fee: number | null;
+  /** Middle of serious 107/108/118/119 rows J–T listings, after the cheap 107P dump rule. */
+  comp_median?: number | null;
+  comp_count?: number | null;
+  comp_excluded_dump?: boolean;
+  /** "bigger" | "soft" | "standard" when a game is actually marked. Absent means no tier. */
+  demand?: string | null;
   listed: boolean;
   listed_ask: number | null;
   sold: boolean;
@@ -55,18 +62,55 @@ export type FilterId =
   | "sold";
 
 export const SEASON_COST_DEFAULT = 6000;
-export const TICKETMASTER_FEE_RATE = 0.1;
+/**
+ * Seller service fee observed on the Wizards Account Manager payout modal
+ * (Preseason vs Nets, Mon Oct 12 2026, Sec 107 Row P seats 1–2):
+ * typed “Set Your Price Per Ticket” $49.00, seller fee −$2.45 (exactly 5%),
+ * payout $46.55 a seat, both seats $93.10.
+ * The modal also says the buyer sees a higher price. That buyer total is not
+ * in the modal, so this book does not invent one.
+ * He keeps 95% of the number he types. Pair cash = 2 × that keep.
+ */
+export const SELLER_FEE_RATE = 0.05;
+export const SELLER_KEEP_RATE = 0.95;
 export const PAIR_SEATS = 2;
 
 export function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** What he keeps for one seat after the 5% seller fee on a typed price. */
+export function keepFromTypeIn(typeIn: number): number {
+  return Math.round(typeIn * 95) / 100;
+}
+
+/** Seller fee for one seat. $49 → $2.45. */
+export function sellerFeePerSeat(typeIn: number): number {
+  return Math.round(typeIn * 5) / 100;
+}
+
+/** Both seats: 2 × keep = typed price × 1.90. $49 → $93.10. */
+export function pairFromTypeIn(typeIn: number): number {
+  return Math.round(typeIn * 190) / 100;
+}
+
+/**
+ * Whole-dollar “Set Your Price” whose 95% payout is closest to `keep`.
+ * Halfway cases round up ($52.50 → $53), so the payout is the nearer keep
+ * and, on an exact tie, the higher typed dollar.
+ */
+export function typeInFromKeep(keep: number): number {
+  if (!Number.isFinite(keep) || keep <= 0) return 1;
+  const typeIn = Math.round(keep / SELLER_KEEP_RATE);
+  return typeIn < 1 ? 1 : typeIn;
+}
+
 export function cashBothAfterFee(
   ask: number | null | undefined,
-  feeRate = TICKETMASTER_FEE_RATE,
+  feeRate = SELLER_FEE_RATE,
 ): number | null {
   if (ask == null || Number.isNaN(ask)) return null;
+  if (feeRate === SELLER_FEE_RATE) return pairFromTypeIn(ask);
   return roundMoney(ask * PAIR_SEATS * (1 - feeRate));
 }
 
@@ -85,7 +129,10 @@ export function vsSeason(sellCash: number, seasonCost: number): number {
 export function recomputeBookTotals(book: Book): Book {
   const games = book.games.map((game) => ({
     ...game,
-    cash_both_after_fee: cashBothAfterFee(game.advised_ask),
+    // Do not turn a stored ask into cash with a flat haircut. Pair cash is
+    // 2 × what he keeps, and that depends on the type-in he saved or the
+    // live suggestion. The browser owns that number.
+    cash_both_after_fee: null,
   }));
   const sell_book_cash = sellBookCash(games);
   return {
