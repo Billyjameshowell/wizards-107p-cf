@@ -132,5 +132,12 @@ To turn spend back off: edit the vars to set `INGEST_ENABLED: "false"` or `DRY_R
 - Seed: `data/seed-book.json` (43 home games). Used when D1/KV are empty.
 - Live book: D1 `store` key `book`, mirrored to KV `BOOK`.
 - Spend-state: D1/KV key `spend` (caps and circuit breaker). Not shown on the page.
+- Price history: D1 `price_history`, migration `migrations/0002_price_history.sql`. One row per game, source, and ET day. SeatData comp middles feed the suggestion, so it gets steadier as more mornings land. Apify get-in, arena median, and listing count are stored on the same table and do not set the ask. The worker also creates the table on the first run that writes it. Apply the migration before the next deploy:
+
+```bash
+npm run db:migrate:remote
+```
+
+No new flags. Paid pulls stay off until `INGEST_ENABLED` and `DRY_RUN` are changed.
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).

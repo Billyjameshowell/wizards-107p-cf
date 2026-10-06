@@ -26,8 +26,8 @@ The site **does not list tickets**. It tracks status. Nothing is posted to Ticke
 
 `SOURCES=seatdata,apify` (comma list). Adapters normalize into the book, then persist.
 
-1. **SeatData** — comps in 107 / 108 / 118 / 119, rows J–T, quantity ≥ 2. The suggestion uses the median of those listings, and leaves out one lone cheapest Section 107 Row P listing. It does not use the lowest price. Search is free; listings/sales consume pulls.
-2. **Apify** `lentic_clockss/seatgeek-scraper` — cheap list only (`includeListings: false` unless `APIFY_INCLUDE_LISTINGS=true`). Home games at Capital One Arena. Map `lowestPrice` / `medianPrice` / `listingCount`.
+1. **SeatData** — comps in 107 / 108 / 118 / 119, rows J–T, quantity ≥ 2. The suggestion uses the median of those listings, and leaves out one lone cheapest Section 107 Row P listing. It does not use the lowest price. Search is free; listings/sales consume pulls. Each successful listings check is saved in D1 `price_history` (one row per game per ET day; a later check that day replaces it). The middle blends those checks: recent days count more, a thin morning stays near the recent middle, and a morning with many comps follows the live median without taking the whole jump in one day. If the middle has stepped the same way on the last few busy checks, the blend leans a little further that way. A morning with no usable comps keeps the recent middle for 21 days, then shows no price. A game SeatData has not listed yet stays at no price until an event exists; the next run that sees the event can record the first real middle, because games with no check yet are looked at before games already checked. The same pull caps still apply.
+2. **Apify** `lentic_clockss/seatgeek-scraper` — cheap list only (`includeListings: false` unless `APIFY_INCLUDE_LISTINGS=true`). Home games at Capital One Arena. Map `lowestPrice` / `medianPrice` / `listingCount`. Those arena figures are saved on `price_history` and do not set the suggestion.
 
 Do not invent prices. TicketData scrape and auto-listing are out of scope.
 
@@ -43,7 +43,7 @@ Do not invent prices. TicketData scrape and auto-listing are out of scope.
 | 429 / 5xx | Abort that source | Open an ET-day circuit breaker |
 | `/api/cron` | Bearer `CRON_SECRET` | Fail closed if secret missing |
 
-Unit tests in `test/guardrails.test.ts` lock these rules.
+Unit tests in `test/guardrails.test.ts` lock these rules. Saving price history does not add a paid call. It runs only after a pull that already passed these gates. There is no new flag. `INGEST_ENABLED` stays false and `DRY_RUN` stays true.
 
 ## HTTP and schedule
 
