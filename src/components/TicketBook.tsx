@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SearchIcon, XIcon } from "lucide-react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
@@ -30,8 +31,10 @@ import {
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
 import { MAX_TABLE_SCALE, MIN_TABLE_SCALE, stepTableScale } from "@/lib/table-zoom";
 import { usePinchZoom } from "@/lib/use-pinch-zoom";
+import { gameMatchesQuery } from "@/lib/game-search";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import {
   Table,
   TableBody,
@@ -359,6 +362,7 @@ export function TicketBook({
   const [scenario, setScenario] = useState<ScenarioMap>(() => readScenario());
   const [overrides, setOverrides] = useState<PriceOverrideMap>(() => readPriceOverrides());
   const [filter, setFilter] = useState<FilterId>("all");
+  const [query, setQuery] = useState("");
   const [copyLabel, setCopyLabel] = useState("Copy status");
   const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
   const { scale, setScale, bind } = usePinchZoom();
@@ -407,15 +411,25 @@ export function TicketBook({
 
   const visible = useMemo(() => {
     const filtered = rows.filter(({ game, status }) => {
-      if (filter === "sit") return game.sit_or_sell === "Sit";
-      if (filter === "sell") return game.sit_or_sell === "Sell";
-      if (filter === "listed") return status.listed;
-      if (filter === "sold") return status.sold;
-      if (filter === "not-listed") return !status.listed && !status.sold;
-      return true;
+      if (filter === "sit" && game.sit_or_sell !== "Sit") return false;
+      if (filter === "sell" && game.sit_or_sell !== "Sell") return false;
+      if (filter === "listed" && !status.listed) return false;
+      if (filter === "sold" && !status.sold) return false;
+      if (filter === "not-listed" && (status.listed || status.sold)) return false;
+      return gameMatchesQuery(
+        {
+          date: game.date,
+          weekday: game.weekday,
+          opponent: game.opponent,
+          type: game.type,
+          notes: status.notes || game.notes,
+          sitOrSell: game.sit_or_sell,
+        },
+        query,
+      );
     });
     return sortGameRows(filtered, sort);
-  }, [rows, filter, sort]);
+  }, [rows, filter, sort, query]);
 
   const centralLabel = centralColumnLabel(visible.map((row) => row.game));
 
@@ -594,6 +608,34 @@ export function TicketBook({
             Reset Sit and Sell
           </Button>
         </div>
+      </div>
+
+      <div role="search" className="mb-3">
+        <InputGroup className="h-11 min-h-11 bg-background">
+          <InputGroupAddon align="inline-start" className="pl-3">
+            <SearchIcon />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search games (team, date, notes)"
+            aria-label="Search games"
+            className="h-11 text-base md:text-sm [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+          />
+          {query ? (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                aria-label="Clear search"
+                size="icon-sm"
+                className="size-11"
+                onClick={() => setQuery("")}
+              >
+                <XIcon />
+              </InputGroupButton>
+            </InputGroupAddon>
+          ) : null}
+        </InputGroup>
       </div>
 
       <div

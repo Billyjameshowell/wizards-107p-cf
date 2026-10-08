@@ -6,6 +6,7 @@ import {
   demandOf,
   resolveSeatPrice,
   roundSuggestedTypeIn,
+  seatPriceForGame,
   seriousCompMedian,
   suggestFromMedian,
 } from "@shared/pricing";
@@ -208,6 +209,37 @@ describe("saved price", () => {
     });
     expect(view.suggestion).toBeNull();
     expect(view.typeIn).toBeNull();
+  });
+
+  it("uses zone_median when the stored book has no comp_median", () => {
+    const stored = game({
+      date: "2026-10-23",
+      weekday: "Fri",
+      opponent: "Toronto Raptors",
+      type: "regular",
+      market_details: {
+        zone_median: 161.11,
+        zone_comp_count: 174,
+        get_in: 48,
+        median: 90,
+      },
+    });
+    expect(stored.comp_median).toBeUndefined();
+    const view = seatPriceForGame(stored, null, "2026-09-22");
+    expect(view.suggestion?.listedMedian).toBe(161.11);
+    expect(view.suggestion?.compCount).toBe(174);
+    expect(view.typeIn).toBe(160);
+    expect(view.pair).not.toBeNull();
+
+    const withComp = game({
+      date: "2026-10-23",
+      comp_median: 200,
+      comp_count: 8,
+      market_details: stored.market_details,
+    });
+    const preferred = seatPriceForGame(withComp, null, "2026-09-22");
+    expect(preferred.suggestion?.listedMedian).toBe(200);
+    expect(preferred.suggestion?.compCount).toBe(8);
   });
 });
 
