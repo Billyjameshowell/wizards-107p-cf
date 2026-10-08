@@ -88,7 +88,20 @@ export async function archiveObserved(
 }
 
 export async function ensureArchive(env: Env): Promise<void> {
-  await env.DB.exec(ARCHIVE_DDL);
+  // D1 exec rejects leading -- comments and can choke on multi-statement DDL.
+  // Run each statement alone (tables may already exist from migrations).
+  const statements = ARCHIVE_DDL.split(";")
+    .map((part) =>
+      part
+        .split("\n")
+        .map((line) => line.replace(/--.*$/, "").trimEnd())
+        .join("\n")
+        .trim(),
+    )
+    .filter((sql) => sql.length > 0);
+  for (const sql of statements) {
+    await env.DB.prepare(sql).run();
+  }
 }
 
 async function runBackfill(env: Env): Promise<void> {
