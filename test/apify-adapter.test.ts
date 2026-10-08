@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptySpendState } from "@shared/guardrails";
 import type { Game } from "@shared/book";
-import { homePointsFromRows, runApify, seatGeekEventPoint } from "../worker/adapters/apify";
+import { homePointsFromRows, rowSample, runApify, seatGeekEventPoint } from "../worker/adapters/apify";
 
 /** Row shape from lentic_clockss/seatgeek-scraper 0.1.73 (listings is now a summary object). */
 const lenticRow = {
@@ -116,6 +116,14 @@ function mockApify(rows: unknown[], log = "INFO no upcoming events for performer
   );
   return calls;
 }
+
+describe("rowSample", () => {
+  it("summarizes rows so an empty run explains itself in D1", () => {
+    const text = rowSample([awayRow, { recordType: "runSummary", note: "done" }]);
+    expect(text).toContain("2026-10-25T19:30:00 | td-garden | Washington Wizards at Boston Celtics");
+    expect(text).toContain("runSummary | done");
+  });
+});
 
 describe("runApify", () => {
   afterEach(() => {

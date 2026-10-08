@@ -194,6 +194,8 @@ describe("Apify cheap-list defaults", () => {
     expect(safeFlags.apifyActor).toBe("ahmed_jasarevic~seatgeek-scraper");
     expect(input.performerSlugs).toEqual(["washington-wizards"]);
     expect(input.searchQueries).toEqual([]);
+    expect(input.venueCity).toBe("Washington");
+    expect(input.venueState).toBe("DC");
     expect(input.maxItems).toBe(50);
     const listingsOn = apifyActorInput(
       parseFlags({ APIFY_ACTOR: "lentic_clockss~seatgeek-scraper", APIFY_INCLUDE_LISTINGS: "true" }),
