@@ -138,6 +138,30 @@ export function seatGeekEventPoint(raw: unknown): SeatGeekEventPoint | null {
   };
 }
 
+/**
+ * Short, human-readable list of what came back when no home game matched, so
+ * the D1 archive row (and /api/export) says why without opening R2.
+ */
+export function rowSample(rows: unknown[], max = 8): string {
+  const parts: string[] = [];
+  for (const raw of rows.slice(0, max)) {
+    const row = record(raw);
+    if (!row) {
+      parts.push(typeof raw);
+      continue;
+    }
+    const venue = record(row.venue);
+    const bits = [
+      str(row.recordType),
+      str(row.datetimeLocal) ?? str(row.datetimeUtc) ?? str(row.date),
+      str(row.venueSlug) ?? str(venue?.slug) ?? str(row.venueName) ?? str(venue?.name),
+      str(row.title) ?? str(row.name) ?? str(row.note),
+    ].filter(Boolean);
+    parts.push(bits.join(" | ").slice(0, 140));
+  }
+  return parts.join(" ; ");
+}
+
 /** Home Wizards games only, one point per date (first row wins). */
 export function homePointsFromRows(rows: unknown[]): { date: string; point: SeatGeekEventPoint }[] {
   const byDate = new Map<string, SeatGeekEventPoint>();
@@ -360,7 +384,9 @@ export async function runApify(
       paid: true,
       costUsd,
       error: empty ? (rows.length === 0 ? "apify_zero_rows" : "apify_no_home_rows") : null,
-      note: `apify run ${run.id} (${actor}${buildNumber ? ` ${buildNumber}` : ""})`,
+      note: `apify run ${run.id} (${actor}${buildNumber ? ` ${buildNumber}` : ""})${
+        empty && rows.length > 0 ? ` rows: ${rowSample(rows)}` : ""
+      }`,
       raw: empty ? { ...(await diagnostics()), rows: items.body } : items.body,
       listingCount: rows.length,
     },

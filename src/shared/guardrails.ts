@@ -278,6 +278,9 @@ export type LenticSeatGeekInput = {
 export type AhmedSeatGeekInput = {
   performerSlugs: string[];
   searchQueries: string[];
+  /** Home games only: Capital One Arena is in Washington, DC. Keeps away games from using the event cap. */
+  venueCity: string;
+  venueState: string;
   onlyOpen: boolean;
   sort: "datetime_utc.asc";
   maxItems: number;
@@ -291,6 +294,8 @@ export function apifyActorInput(flags: Flags): LenticSeatGeekInput | AhmedSeatGe
     return {
       performerSlugs: [WIZARDS_SEATGEEK_SLUG],
       searchQueries: [],
+      venueCity: "Washington",
+      venueState: "DC",
       onlyOpen: true,
       sort: "datetime_utc.asc",
       maxItems: flags.apifyMaxEvents,
