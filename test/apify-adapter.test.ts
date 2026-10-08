@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptySpendState } from "@shared/guardrails";
 import type { Game } from "@shared/book";
-import { homePointsFromRows, rowSample, runApify, seatGeekEventPoint } from "../worker/adapters/apify";
+import {
+  emptyRunNote,
+  homePointsFromRows,
+  rowSample,
+  runApify,
+  seatGeekEventPoint,
+} from "../worker/adapters/apify";
 
 /** Row shape from lentic_clockss/seatgeek-scraper 0.1.73 (listings is now a summary object). */
 const lenticRow = {
@@ -125,6 +131,25 @@ describe("rowSample", () => {
   });
 });
 
+describe("emptyRunNote", () => {
+  it("puts rows, status and the end of the log in one bounded line", () => {
+    const longLog = `${"x".repeat(5000)}\nWARN   free tier: stopped after 0 events\n`;
+    const text = emptyRunNote([{ recordType: "runSummary", eventsProcessed: 0, note: "done" }], {
+      statusMessage: "Finished",
+      logTail: longLog,
+    });
+    expect(text).toContain("rows: runSummary | eventsProcessed=0 | done");
+    expect(text).toContain("status: Finished");
+    expect(text).toContain("log: …");
+    expect(text).toContain("WARN free tier: stopped after 0 events");
+    expect(text.length).toBeLessThan(1400);
+  });
+
+  it("skips parts that are missing", () => {
+    expect(emptyRunNote([], { statusMessage: null, logTail: "  " })).toBe("");
+  });
+});
+
 describe("runApify", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -159,9 +184,23 @@ describe("runApify", () => {
     expect(out.result.aborted).toBe("zero_rows");
     expect(out.observations).toHaveLength(1);
     expect(out.observations[0]).toMatchObject({ status: "empty", error: "apify_zero_rows" });
+    expect(out.observations[0]?.note).toContain("log: INFO no upcoming events for performer");
+    expect(out.observations[0]?.note).toContain("status: done");
     const raw = out.observations[0]?.raw as { logTail: string; buildNumber: string };
     expect(raw.logTail).toContain("no upcoming events");
     expect(raw.buildNumber).toBe("0.1.73");
+  });
+
+  it("explains a run with only a summary row in the D1 note", async () => {
+    mockApify([{ recordType: "runSummary", eventsProcessed: 0, note: "done" }], "INFO 0 events matched");
+    const out = await runApify(
+      { env: env(), games, now: new Date("2026-10-08T21:00:00Z") },
+      emptySpendState("2026-10-08"),
+      "2026-10-08",
+    );
+    expect(out.result.aborted).toBe("no_home_rows");
+    expect(out.observations[0]?.note).toContain("rows: runSummary | eventsProcessed=0 | done");
+    expect(out.observations[0]?.note).toContain("log: INFO 0 events matched");
   });
 
   it("pins a build and switches actor from env", async () => {

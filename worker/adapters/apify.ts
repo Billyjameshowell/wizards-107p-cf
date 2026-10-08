@@ -151,8 +151,10 @@ export function rowSample(rows: unknown[], max = 8): string {
       continue;
     }
     const venue = record(row.venue);
+    const processed = row.eventsProcessed;
     const bits = [
       str(row.recordType),
+      typeof processed === "number" ? `eventsProcessed=${processed}` : undefined,
       str(row.datetimeLocal) ?? str(row.datetimeUtc) ?? str(row.date),
       str(row.venueSlug) ?? str(venue?.slug) ?? str(row.venueName) ?? str(venue?.name),
       str(row.title) ?? str(row.name) ?? str(row.note),
@@ -160,6 +162,31 @@ export function rowSample(rows: unknown[], max = 8): string {
     parts.push(bits.join(" | ").slice(0, 140));
   }
   return parts.join(" ; ");
+}
+
+/** One line of text from a log or status message, last `max` chars. */
+function tailLine(value: string | null | undefined, max: number): string | null {
+  if (!value) return null;
+  const flat = value.replace(/\s+/g, " ").trim();
+  if (!flat) return null;
+  return flat.length > max ? `…${flat.slice(-max)}` : flat;
+}
+
+/**
+ * Why an Apify run produced no home game, short enough for the D1 note:
+ * what rows came back, the run's status message, and the end of its log.
+ */
+export function emptyRunNote(
+  rows: unknown[],
+  diag: { statusMessage?: string | null; logTail?: string | null },
+): string {
+  const parts: string[] = [];
+  if (rows.length > 0) parts.push(`rows: ${rowSample(rows)}`);
+  const status = tailLine(diag.statusMessage, 200);
+  if (status) parts.push(`status: ${status}`);
+  const log = tailLine(diag.logTail, 700);
+  if (log) parts.push(`log: ${log}`);
+  return parts.join(" || ");
 }
 
 /** Home Wizards games only, one point per date (first row wins). */
@@ -377,6 +404,7 @@ export async function runApify(
   const home = homePointsFromRows(rows);
   const points: MarketPoint[] = [];
   const empty = home.length === 0;
+  const diag = empty ? await diagnostics() : null;
   const observations: ObservedPull[] = [
     {
       gameDate: null,
@@ -385,9 +413,9 @@ export async function runApify(
       costUsd,
       error: empty ? (rows.length === 0 ? "apify_zero_rows" : "apify_no_home_rows") : null,
       note: `apify run ${run.id} (${actor}${buildNumber ? ` ${buildNumber}` : ""})${
-        empty && rows.length > 0 ? ` rows: ${rowSample(rows)}` : ""
+        diag ? ` ${emptyRunNote(rows, diag)}` : ""
       }`,
-      raw: empty ? { ...(await diagnostics()), rows: items.body } : items.body,
+      raw: diag ? { ...diag, rows: items.body } : items.body,
       listingCount: rows.length,
     },
   ];
