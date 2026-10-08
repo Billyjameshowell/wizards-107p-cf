@@ -10,6 +10,8 @@ import { runApify } from "./adapters/apify";
 import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
 import { archiveObserved, ensureArchiveBackfill, rowsForAdapter } from "./archive-store";
+import { insertProbableSales } from "./likely-sales";
+import { refitPriceModel } from "./model-fit";
 import {
   loadLiveBook,
   readCompHistory,
@@ -203,6 +205,18 @@ export async function runIngest(
   now = new Date(),
 ): Promise<IngestSummary> {
   try {
+    return await runIngestOnce(env, trigger, now);
+  } finally {
+    await refitPriceModel(env, trigger, now);
+  }
+}
+
+async function runIngestOnce(
+  env: Env,
+  trigger: IngestTrigger,
+  now: Date,
+): Promise<IngestSummary> {
+  try {
     await ensureArchiveBackfill(env);
   } catch (error) {
     console.error("price archive backfill", error);
@@ -267,11 +281,13 @@ export async function runIngest(
 
   const ctx = { env, games: book.games, now };
   const archives: { source: string; rows: ObservedPull[] }[] = [];
+  let certainSales: Awaited<ReturnType<typeof runSeatData>>["sales"] = [];
 
   if (flags.sources.includes("seatdata")) {
     const seat = await runSeatData(ctx, spend, etDate);
     spend = seat.spend;
     sources.push(seat.result);
+    certainSales = seat.sales;
     archives.push({
       source: "seatdata",
       rows: rowsForAdapter({
@@ -302,6 +318,11 @@ export async function runIngest(
     await saveArchive(env, trigger, now, archives);
   } catch (error) {
     console.error("price archive", error);
+  }
+  try {
+    await insertProbableSales(env, certainSales, now);
+  } catch (error) {
+    console.error("sale archive", error);
   }
 
   const hasPoints = sources.some((result) => result.points.length > 0);

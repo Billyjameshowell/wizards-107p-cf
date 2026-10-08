@@ -2,6 +2,7 @@ import { bookPullInstants, ingestStatusWarnings, latestInstant } from "../src/sh
 import { formatEtStamp } from "../src/shared/book";
 import { authorizeBearer, parseFlags, timingSafeEqual } from "../src/shared/guardrails";
 import { ensureArchive } from "./archive-store";
+import { latestSavedModel, prepareModelFit } from "./model-fit";
 import { readBook } from "./store";
 
 const HEADERS = {
@@ -10,6 +11,28 @@ const HEADERS = {
   "X-Robots-Tag": "noindex, nofollow",
   "Referrer-Policy": "no-referrer",
 };
+
+function modelErrorText(
+  model:
+    | {
+        fittedAt: string | null;
+        rows: number | null;
+        early: boolean | null;
+        holdoutMedianAbsPercent: number | null;
+      }
+    | null
+    | undefined,
+): string {
+  if (!model) return "No saved fit yet. The next morning check will store one.";
+  const miss =
+    model.holdoutMedianAbsPercent == null
+      ? "not enough checks to score the next price yet"
+      : `${model.holdoutMedianAbsPercent}% median miss on the next price check`;
+  const rows = model.rows == null ? "unknown" : String(model.rows);
+  const stage = model.early ? "early estimate" : "past the early-data bar";
+  const saved = model.fittedAt ? ` Saved ${formatEtStamp(new Date(model.fittedAt))} ET.` : "";
+  return escapeHtml(`${miss}. ${rows} cleaned checks. ${stage}.${saved}`);
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -44,6 +67,12 @@ export function renderAdminStatusPage(args: {
   lastAttemptAt?: string | null;
   seatdataKey: boolean;
   apifyToken: boolean;
+  model?: {
+    fittedAt: string | null;
+    rows: number | null;
+    early: boolean | null;
+    holdoutMedianAbsPercent: number | null;
+  } | null;
 }): string {
   const last = args.lastPullAt ? formatEtStamp(new Date(args.lastPullAt)) : "none";
   const attempt = args.lastAttemptAt ? formatEtStamp(new Date(args.lastAttemptAt)) : "none";
@@ -77,6 +106,7 @@ export function renderAdminStatusPage(args: {
     <dt>SeatData key</dt><dd>${args.seatdataKey ? "set" : "missing"}</dd>
     <dt>Apify token</dt><dd>${args.apifyToken ? "set" : "missing"}</dd>
     <dt>Caps</dt><dd>SeatData 20 per run, 25 per ET day. Apify $0.50 and 50 events. Listings off.</dd>
+    <dt>Next-check error</dt><dd>${modelErrorText(args.model)}</dd>
   </dl>
 </body>
 </html>`;
@@ -161,6 +191,24 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
     lastPullAt,
     now,
   });
+  const savedModel = await latestSavedModel(env);
+  let model = savedModel;
+  if (model?.holdoutMedianAbsPercent == null) {
+    try {
+      const scored = await prepareModelFit(env, "admin", now);
+      if (scored) {
+        model = {
+          fittedAt: savedModel?.fittedAt ?? null,
+          version: scored.version,
+          rows: scored.rows,
+          early: scored.early === 1,
+          holdoutMedianAbsPercent: scored.holdoutMedianAbsPercent,
+        };
+      }
+    } catch (error) {
+      console.error("price model score", error);
+    }
+  }
   const html = renderAdminStatusPage({
     warnings,
     ingestEnabled: flags.ingestEnabled,
@@ -169,6 +217,7 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
     lastAttemptAt,
     seatdataKey: Boolean(env.SEATDATA_API_KEY?.trim()),
     apifyToken: Boolean(env.APIFY_TOKEN?.trim()),
+    model,
   });
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: HEADERS });
 }

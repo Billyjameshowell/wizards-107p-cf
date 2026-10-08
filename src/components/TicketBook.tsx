@@ -290,6 +290,12 @@ function GameCard({
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <DaysOut date={game.date} todayEt={todayEt} />
           <PreseasonMark type={game.type} />
+          <a
+            href={`/trends/${game.date}`}
+            className="text-sm font-semibold text-navy underline underline-offset-2"
+          >
+            Price trend
+          </a>
         </div>
         <div className="mt-2.5">
           <ScenarioToggle wide value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
@@ -494,7 +500,13 @@ export function TicketBook({
           <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
             Capital One Arena · Section {book.section} Row {book.row} · seats {book.seats.join("–")}
           </p>
-          <nav aria-label="Site" className="shrink-0">
+          <nav aria-label="Site" className="flex shrink-0 items-center gap-1">
+            <a
+              href="/trends"
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-[#f3e6c8] underline decoration-[#f3e6c8]/70 underline-offset-4"
+            >
+              Trends
+            </a>
             <a
               href="/admin"
               className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-[#f3e6c8] underline decoration-[#f3e6c8]/70 underline-offset-4"
@@ -721,6 +733,12 @@ export function TicketBook({
                     <TableCell>
                       <span className="font-semibold text-navy">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />
+                      <a
+                        href={`/trends/${game.date}`}
+                        className="mt-1 block text-sm font-semibold text-navy underline underline-offset-2"
+                      >
+                        Price trend
+                      </a>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatType(game.type)}</TableCell>
                     <TableCell className="text-muted-foreground">{game.time_et}</TableCell>

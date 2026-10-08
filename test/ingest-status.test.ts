@@ -85,6 +85,28 @@ describe("admin ingest warnings", () => {
     expect(html).toContain("3:46pm");
     expect(html).toContain("Apify token</dt><dd>missing");
     expect(html).toContain("noindex,nofollow");
+    expect(html).toContain("No saved fit yet");
+  });
+
+  it("shows the median miss on the next price check", () => {
+    const html = renderAdminStatusPage({
+      warnings: [],
+      ingestEnabled: true,
+      dryRun: false,
+      lastPullAt: "2026-10-08T12:00:00.000Z",
+      seatdataKey: true,
+      apifyToken: true,
+      model: {
+        fittedAt: "2026-10-08T12:00:00.000Z",
+        rows: 140,
+        early: true,
+        holdoutMedianAbsPercent: 6.5,
+      },
+    });
+    expect(html).toContain("Next-check error");
+    expect(html).toContain("6.5% median miss on the next price check");
+    expect(html).toContain("early estimate");
+    expect(html).toContain("140 cleaned checks");
   });
 });
 
@@ -107,6 +129,7 @@ describe("production wrangler vars", () => {
     expect(config).not.toContain('"DRY_RUN": "true"');
     expect(config).toContain('"SEATDATA_MAX_PULLS_PER_RUN": "20"');
     expect(config).toContain('"SEATDATA_MAX_PULLS_PER_ET_DAY": "25"');
+    expect(config).not.toContain("SEATDATA_FETCH_SALES");
     expect(config).toContain('"APIFY_MAX_TOTAL_CHARGE_USD": "0.50"');
     expect(config).toContain('"APIFY_MAX_EVENTS": "50"');
     expect(config).toContain('"APIFY_INCLUDE_LISTINGS": "false"');

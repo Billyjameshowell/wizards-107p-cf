@@ -1,7 +1,8 @@
-import { type CompListing } from "../../src/shared/book";
+import { extractSectionNumber, isCompListing, normalizeRow, type CompListing } from "../../src/shared/book";
 import type { ObservedPull } from "../../src/shared/archive";
 import { orderGamesForCompPull } from "../../src/shared/price-history";
-import { seriousCompMedian } from "../../src/shared/pricing";
+import type { ProbableSale } from "../../src/shared/price-model";
+import { daysUntil, seriousCompMedian } from "../../src/shared/pricing";
 import {
   canStartPaidSource,
   canTakeSeatDataPull,
@@ -10,6 +11,7 @@ import {
   parseFlags,
   recordPaidAttempt,
   recordSeatDataPull,
+  type Flags,
   type SpendState,
 } from "../../src/shared/guardrails";
 import type { AdapterContext, AdapterResult, MarketPoint } from "./types";
@@ -76,7 +78,7 @@ export async function runSeatData(
   ctx: AdapterContext,
   spend: SpendState,
   etDate: string,
-): Promise<{ result: AdapterResult; spend: SpendState; observations: ObservedPull[] }> {
+): Promise<{ result: AdapterResult; spend: SpendState; observations: ObservedPull[]; sales: ProbableSale[] }> {
   const flags = parseFlags(ctx.env);
   const gate = canStartPaidSource({
     flags,
@@ -92,6 +94,7 @@ export async function runSeatData(
       result: { source: "seatdata", paid: false, aborted: gate.reason, points: [] },
       spend,
       observations: [],
+      sales: [],
     };
   }
 
@@ -126,6 +129,7 @@ export async function runSeatData(
           note: "event search",
         },
       ],
+      sales: [],
     };
   }
 
@@ -149,6 +153,7 @@ export async function runSeatData(
           note: "event search",
         },
       ],
+      sales: [],
     };
   }
 
@@ -178,6 +183,7 @@ export async function runSeatData(
 
   let runPulls = 0;
   const points: MarketPoint[] = [];
+  const sales: ProbableSale[] = [];
   const dates = prioritizeDates(ctx.games, ctx.now);
 
   for (const date of dates) {
@@ -232,6 +238,7 @@ export async function runSeatData(
         },
         spend,
         observations,
+        sales,
       };
     }
 
@@ -280,11 +287,133 @@ export async function runSeatData(
       excludedDump: snapshot.excludedDump,
       listingCount: listings.length,
     });
+
+    if (flags.seatdataFetchSales) {
+      const fetched = await fetchRecentSales({
+        env: ctx.env,
+        eventId: event.event_id,
+        gameDate: date,
+        now: ctx.now,
+        runPulls,
+        spend,
+        etDate,
+        flags,
+      });
+      runPulls = fetched.runPulls;
+      spend = fetched.spend;
+      sales.push(...fetched.sales);
+      if (fetched.aborted) {
+        return {
+          result: {
+            source: "seatdata",
+            paid: true,
+            aborted: fetched.aborted,
+            pulls: runPulls,
+            points,
+          },
+          spend,
+          observations,
+          sales,
+        };
+      }
+    }
   }
 
   return {
     result: { source: "seatdata", paid: true, pulls: runPulls, points },
     spend,
     observations,
+    sales,
   };
+}
+
+/**
+ * One page of recent sales for an event. Off unless the flag is on.
+ * An empty response is free. A response that has sale rows spends one pull,
+ * inside the same per-run and per-day caps as listings.
+ */
+async function fetchRecentSales(args: {
+  env: Env;
+  eventId: number;
+  gameDate: string;
+  now: Date;
+  runPulls: number;
+  spend: SpendState;
+  etDate: string;
+  flags: Flags;
+}): Promise<{ sales: ProbableSale[]; runPulls: number; spend: SpendState; aborted?: string }> {
+  const pullGate = canTakeSeatDataPull({
+    runPulls: args.runPulls,
+    pullsToday: args.spend.sources.seatdata.pullsToday,
+    maxPerRun: args.flags.seatdataMaxPullsPerRun,
+    maxPerDay: args.flags.seatdataMaxPullsPerEtDay,
+  });
+  if (!pullGate.ok) return { sales: [], runPulls: args.runPulls, spend: args.spend };
+
+  const response = await seatdataFetch(args.env, `/v1/events/${args.eventId}/sales`, { source: "all" });
+  if (isAbortHttpStatus(response.status)) {
+    await response.body?.cancel();
+    args.spend.sources.seatdata = openCircuit(args.spend.sources.seatdata, args.etDate, `sales_${response.status}`);
+    return { sales: [], runPulls: args.runPulls, spend: args.spend, aborted: `http_${response.status}` };
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    return { sales: [], runPulls: args.runPulls, spend: args.spend };
+  }
+
+  const body = (await response.json()) as { data?: unknown[]; sales?: unknown[] };
+  const rows = Array.isArray(body.data) ? body.data : Array.isArray(body.sales) ? body.sales : [];
+  const parsed = rows.slice(0, 80).flatMap((row) => readSale(row, args.gameDate, args.eventId, args.now));
+  let runPulls = args.runPulls;
+  // A response with sale rows spends one pull, even if none are in the pair band.
+  if (rows.length > 0) {
+    runPulls += 1;
+    args.spend.sources.seatdata = recordSeatDataPull(args.spend.sources.seatdata, args.etDate);
+  }
+  return { sales: parsed, runPulls, spend: args.spend };
+}
+
+function readSale(value: unknown, gameDate: string, eventId: number, now: Date): ProbableSale[] {
+  if (!value || typeof value !== "object") return [];
+  const row = value as Record<string, unknown>;
+  const price = numberOf(row.price ?? row.sale_price ?? row.amount);
+  const quantity = numberOf(row.quantity ?? row.qty);
+  const section = typeof row.section === "string" ? row.section : undefined;
+  const rowName = typeof row.row === "string" ? row.row : undefined;
+  if (
+    price == null ||
+    quantity == null ||
+    !isCompListing({ active: true, section, row: rowName, quantity, price })
+  ) {
+    return [];
+  }
+  const stamp = typeof row.purchased_at === "string" ? row.purchased_at : typeof row.sold_at === "string" ? row.sold_at : "";
+  const day = /^\d{4}-\d{2}-\d{2}/.test(stamp) ? stamp.slice(0, 10) : now.toISOString().slice(0, 10);
+  const daysOut = daysUntil(gameDate, day) ?? 0;
+  const rawId = row.id ?? row.sale_id ?? `${section}|${rowName}|${quantity}|${Math.round(price * 100)}|${day}`;
+  return [
+    {
+      gameDate,
+      seenDate: day,
+      goneDate: day,
+      daysOut,
+      section: extractSectionNumber(section) ?? "",
+      row: normalizeRow(rowName) ?? "",
+      quantity,
+      price,
+      certain: true,
+      externalId: `sale|${eventId}|${String(rawId).slice(0, 120)}`,
+      median: null,
+      supply: null,
+    },
+  ];
+}
+
+function numberOf(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }

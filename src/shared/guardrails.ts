@@ -20,6 +20,8 @@ export type Flags = {
   apifyMaxTotalChargeUsd: number;
   apifyMaxEvents: number;
   seatdataBaseUrl: string;
+  /** Recent sale rows. Off unless set. A response with rows spends one pull. */
+  seatdataFetchSales: boolean;
 };
 
 export type SourceSpend = {
@@ -155,6 +157,7 @@ export function parseFlags(env: object): Flags {
       /\/$/,
       "",
     ),
+    seatdataFetchSales: parseBooleanFlag(readEnvString(env, "SEATDATA_FETCH_SALES"), false),
   };
 }
 

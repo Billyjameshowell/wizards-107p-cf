@@ -4,6 +4,7 @@ import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
 import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
+import { trendsResponse } from "./trends";
 
 const PRIVATE = {
   "Cache-Control": "no-store",
@@ -26,6 +27,10 @@ export default {
     if (url.pathname === "/api/book" && request.method === "GET") {
       const book = await loadLiveBook(env);
       return Response.json(book);
+    }
+
+    if (url.pathname === "/api/trends" && request.method === "GET") {
+      return trendsResponse(env);
     }
 
     if (url.pathname === "/api/export" && request.method === "GET") {

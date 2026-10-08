@@ -27,6 +27,7 @@ describe("SAFE defaults", () => {
     expect(safeFlags.ingestEnabled).toBe(false);
     expect(safeFlags.dryRun).toBe(true);
     expect(safeFlags.apifyIncludeListings).toBe(false);
+    expect(safeFlags.seatdataFetchSales).toBe(false);
     expect(safeFlags.sources).toEqual(["seatdata", "apify"]);
     expect(safeFlags.seatdataMaxPullsPerRun).toBe(20);
     expect(safeFlags.seatdataMaxPullsPerEtDay).toBe(25);
