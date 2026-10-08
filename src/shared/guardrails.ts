@@ -151,7 +151,7 @@ export function parseFlags(env: object): Flags {
         HARD_CAPS.apifyMaxEvents,
       ),
     ),
-    seatdataBaseUrl: (readEnvString(env, "SEATDATA_BASE_URL") ?? "https://api.seatdata.io").replace(
+    seatdataBaseUrl: (readEnvString(env, "SEATDATA_BASE_URL") ?? "https://seatdata.io").replace(
       /\/$/,
       "",
     ),
