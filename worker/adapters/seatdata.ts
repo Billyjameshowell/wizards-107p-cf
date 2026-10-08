@@ -1,4 +1,4 @@
-import { type CompListing } from "../../src/shared/book";
+import { isCompListing, type CompListing } from "../../src/shared/book";
 import type { ObservedPull } from "../../src/shared/archive";
 import { orderGamesForCompPull } from "../../src/shared/price-history";
 import { seriousCompMedian } from "../../src/shared/pricing";
@@ -70,6 +70,39 @@ export function prioritizeDates(games: AdapterContext["games"], now: Date): stri
 
 function opponentFor(ctx: AdapterContext, date: string): string | null {
   return ctx.games.find((game) => game.date === date)?.opponent ?? null;
+}
+
+/**
+ * Shrink one SeatData listings payload to what we keep. A Wizards game returns
+ * ~20k listings (several MB); archiving every row (R2 raw + one D1 row each)
+ * blew the Worker CPU limit. We keep the comp-zone listings (what the median
+ * is built from) and a small raw summary.
+ */
+export function slimListingsPayload(body: { has_refreshed?: number; listings?: CompListing[] }): {
+  total: number;
+  comps: CompListing[];
+  raw: { has_refreshed: number | null; listing_total: number; comp_listings: number };
+} {
+  const all = Array.isArray(body.listings) ? body.listings : [];
+  const comps = all.filter((listing) => listing && typeof listing === "object" && isCompListing(listing));
+  return {
+    total: all.length,
+    comps,
+    raw: {
+      has_refreshed: typeof body.has_refreshed === "number" ? body.has_refreshed : null,
+      listing_total: all.length,
+      comp_listings: comps.length,
+    },
+  };
+}
+
+async function saveSpend(ctx: AdapterContext, spend: SpendState): Promise<void> {
+  if (!ctx.saveSpend) return;
+  try {
+    await ctx.saveSpend(spend);
+  } catch (error) {
+    console.error("seatdata spend checkpoint", error);
+  }
 }
 
 export async function runSeatData(
@@ -175,8 +208,12 @@ export async function runSeatData(
   }
 
   spend.sources.seatdata = recordPaidAttempt(spend.sources.seatdata, etDate);
+  await saveSpend(ctx, spend);
 
   let runPulls = 0;
+  // Every listings call counts toward the per-run cap, refreshed (paid) or not,
+  // so one run can never walk the whole schedule.
+  let runFetches = 0;
   const points: MarketPoint[] = [];
   const dates = prioritizeDates(ctx.games, ctx.now);
 
@@ -192,17 +229,23 @@ export async function runSeatData(
       maxPerRun: flags.seatdataMaxPullsPerRun,
       maxPerDay: flags.seatdataMaxPullsPerEtDay,
     });
-    if (!pullGate.ok) {
+    const gateReason = !pullGate.ok
+      ? pullGate.reason
+      : runFetches >= flags.seatdataMaxPullsPerRun
+        ? "run_fetch_cap"
+        : null;
+    if (gateReason) {
       observations.push({
         gameDate: null,
         status: "skipped",
         paid: false,
-        error: pullGate.reason,
+        error: gateReason,
         note: "seatdata pull cap",
       });
       break;
     }
 
+    runFetches += 1;
     const listingsRes = await seatdataFetch(ctx.env, "/api/v0.1.1/listings/get", {
       event_id: String(event.event_id),
     });
@@ -214,6 +257,7 @@ export async function runSeatData(
         etDate,
         `listings_${listingsRes.status}`,
       );
+      await saveSpend(ctx, spend);
       observations.push({
         gameDate: date,
         opponent: opponentFor(ctx, date),
@@ -255,12 +299,14 @@ export async function runSeatData(
     if (body.has_refreshed === 1) {
       runPulls += 1;
       spend.sources.seatdata = recordSeatDataPull(spend.sources.seatdata, etDate);
+      await saveSpend(ctx, spend);
     }
 
     // listing.price has no all-in flag in this client. The middle is stored as
     // “listed around” and the page turns it into you-keep with the 5% seller fee only.
-    const listings = body.listings ?? [];
-    const snapshot = seriousCompMedian(listings);
+    // seriousCompMedian only uses comp-zone listings, so the slim set gives the same median.
+    const slim = slimListingsPayload(body);
+    const snapshot = seriousCompMedian(slim.comps);
     points.push({
       date,
       compMedian: snapshot.median,
@@ -270,15 +316,15 @@ export async function runSeatData(
     observations.push({
       gameDate: date,
       opponent: opponentFor(ctx, date),
-      status: listings.length === 0 ? "empty" : "ok",
+      status: slim.total === 0 ? "empty" : "ok",
       paid: body.has_refreshed === 1,
       httpStatus: listingsRes.status,
-      listings,
-      raw: body,
+      listings: slim.comps,
+      raw: slim.raw,
       median: snapshot.median,
       compCount: snapshot.count,
       excludedDump: snapshot.excludedDump,
-      listingCount: listings.length,
+      listingCount: slim.total,
     });
   }
 
