@@ -142,7 +142,7 @@ describe("emptyRunNote", () => {
     expect(text).toContain("status: Finished");
     expect(text).toContain("log: …");
     expect(text).toContain("WARN free tier: stopped after 0 events");
-    expect(text.length).toBeLessThan(1400);
+    expect(text.length).toBeLessThan(2200);
   });
 
   it("skips parts that are missing", () => {

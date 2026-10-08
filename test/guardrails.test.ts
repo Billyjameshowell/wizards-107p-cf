@@ -20,6 +20,7 @@ import {
   rolloverSpend,
   parseApifyActor,
   parseApifyBuild,
+  parseApifyInputOverride,
   type AhmedSeatGeekInput,
   type LenticSeatGeekInput,
 } from "@shared/guardrails";
@@ -203,6 +204,33 @@ describe("Apify cheap-list defaults", () => {
     expect(listingsOn.includeListings).toBe(true);
     expect(listingsOn.maxResults).toBeLessThanOrEqual(50);
     expect(listingsOn.mode).toBe("performer");
+  });
+
+  it("lets APIFY_INPUT_JSON replace the filters but never the event cap", () => {
+    const flags = parseFlags({
+      APIFY_INPUT_JSON: JSON.stringify({
+        searchQueries: ["Washington Wizards"],
+        venueState: "DC",
+        taxonomyIds: ["1030300"],
+        maxItems: 5000,
+        eventUrls: ["https://example.com/1"],
+        onlyOpen: false,
+        sort: "bogus",
+      }),
+    });
+    const input = apifyActorInput(flags) as unknown as Record<string, unknown>;
+    expect(input).toEqual({
+      searchQueries: ["Washington Wizards"],
+      venueState: "DC",
+      taxonomyIds: ["1030300"],
+      onlyOpen: false,
+      maxItems: 50,
+    });
+    expect(parseApifyInputOverride("not json")).toBeNull();
+    expect(parseApifyInputOverride("[1]")).toBeNull();
+    expect(parseApifyInputOverride('{"maxItems":9}')).toBeNull();
+    expect(parseApifyInputOverride(undefined)).toBeNull();
+    expect(safeFlags.apifyInputOverride).toBeNull();
   });
 
   it("only accepts known actors and safe build tags", () => {
