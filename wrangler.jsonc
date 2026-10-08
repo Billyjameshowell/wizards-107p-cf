@@ -29,7 +29,9 @@
 		"SEATDATA_MAX_PULLS_PER_RUN": "20",
 		"SEATDATA_MAX_PULLS_PER_ET_DAY": "25",
 		"APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
-		"APIFY_MAX_EVENTS": "50"
+		"APIFY_MAX_EVENTS": "50",
+		"APIFY_ACTOR": "ahmed_jasarevic~seatgeek-scraper",
+		"APIFY_ACTOR_BUILD": ""
 	},
 	"d1_databases": [
 		{

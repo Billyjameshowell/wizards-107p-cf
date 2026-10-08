@@ -18,6 +18,10 @@ import {
   recordPaidAttempt,
   recordSeatDataPull,
   rolloverSpend,
+  parseApifyActor,
+  parseApifyBuild,
+  type AhmedSeatGeekInput,
+  type LenticSeatGeekInput,
 } from "@shared/guardrails";
 
 const safeFlags = parseFlags({});
@@ -185,17 +189,37 @@ describe("SeatData pull caps", () => {
 });
 
 describe("Apify cheap-list defaults", () => {
-  it("keeps listings off and charge/event caps at the hard ceiling", () => {
-    const input = apifyActorInput(safeFlags);
-    expect(input.includeListings).toBe(false);
-    expect(input.maxResults).toBe(50);
-    expect(input.mode).toBe("performer");
-    expect(input.performerSlug).toBe("washington-wizards");
+  it("defaults to the SeatGeek API actor under the hard event cap", () => {
+    const input = apifyActorInput(safeFlags) as AhmedSeatGeekInput;
+    expect(safeFlags.apifyActor).toBe("ahmed_jasarevic~seatgeek-scraper");
+    expect(input.performerSlugs).toEqual(["washington-wizards"]);
+    expect(input.searchQueries).toEqual([]);
+    expect(input.maxItems).toBe(50);
     const listingsOn = apifyActorInput(
-      parseFlags({ APIFY_INCLUDE_LISTINGS: "true" }),
-    );
+      parseFlags({ APIFY_ACTOR: "lentic_clockss~seatgeek-scraper", APIFY_INCLUDE_LISTINGS: "true" }),
+    ) as LenticSeatGeekInput;
     expect(listingsOn.includeListings).toBe(true);
     expect(listingsOn.maxResults).toBeLessThanOrEqual(50);
+    expect(listingsOn.mode).toBe("performer");
+  });
+
+  it("only accepts known actors and safe build tags", () => {
+    expect(parseApifyActor(undefined)).toBe("ahmed_jasarevic~seatgeek-scraper");
+    expect(parseApifyActor("someone~other-actor")).toBe("ahmed_jasarevic~seatgeek-scraper");
+    expect(parseApifyActor("lentic_clockss/seatgeek-scraper")).toBe(
+      "lentic_clockss~seatgeek-scraper",
+    );
+    expect(parseApifyBuild("0.1.72")).toBe("0.1.72");
+    expect(parseApifyBuild("")).toBeNull();
+    expect(parseApifyBuild("../../x?y")).toBeNull();
+  });
+
+  it("builds the legacy actor input under the same event cap", () => {
+    const flags = parseFlags({ APIFY_ACTOR: "lentic_clockss~seatgeek-scraper", APIFY_MAX_EVENTS: "500" });
+    const input = apifyActorInput(flags) as LenticSeatGeekInput;
+    expect(input.performerSlug).toBe("washington-wizards");
+    expect(input.maxResults).toBe(50);
+    expect(input.maxPages).toBe(3);
   });
 });
 

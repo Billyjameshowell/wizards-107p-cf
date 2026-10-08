@@ -20,7 +20,33 @@ export type Flags = {
   apifyMaxTotalChargeUsd: number;
   apifyMaxEvents: number;
   seatdataBaseUrl: string;
+  apifyActor: ApifyActorId;
+  /** Optional build tag/number to pin (e.g. "0.1.72"). Empty means the actor default. */
+  apifyActorBuild: string | null;
 };
+
+/**
+ * Apify actors the adapter knows how to call and read. Anything else in env
+ * falls back to the default so a typo cannot point spend at an unknown actor.
+ */
+export const APIFY_ACTORS = [
+  "lentic_clockss~seatgeek-scraper",
+  "ahmed_jasarevic~seatgeek-scraper",
+] as const;
+export type ApifyActorId = (typeof APIFY_ACTORS)[number];
+export const DEFAULT_APIFY_ACTOR: ApifyActorId = "ahmed_jasarevic~seatgeek-scraper";
+
+export function parseApifyActor(value: string | undefined): ApifyActorId {
+  const normalized = (value ?? "").trim().replace("/", "~");
+  return (APIFY_ACTORS as readonly string[]).includes(normalized)
+    ? (normalized as ApifyActorId)
+    : DEFAULT_APIFY_ACTOR;
+}
+
+export function parseApifyBuild(value: string | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return /^[A-Za-z0-9._-]{1,40}$/.test(trimmed) ? trimmed : null;
+}
 
 export type SourceSpend = {
   paidAttemptsToday: number;
@@ -155,6 +181,8 @@ export function parseFlags(env: object): Flags {
       /\/$/,
       "",
     ),
+    apifyActor: parseApifyActor(readEnvString(env, "APIFY_ACTOR")),
+    apifyActorBuild: parseApifyBuild(readEnvString(env, "APIFY_ACTOR_BUILD")),
   };
 }
 
@@ -238,17 +266,41 @@ export function canTakeSeatDataPull(args: {
   return { ok: true };
 }
 
-export function apifyActorInput(flags: Flags): {
+export type LenticSeatGeekInput = {
   mode: "performer";
   performerSlug: string;
   maxResults: number;
+  maxPages: number;
   includeListings: boolean;
   enrichDetails: boolean;
-} {
+};
+
+export type AhmedSeatGeekInput = {
+  performerSlugs: string[];
+  searchQueries: string[];
+  onlyOpen: boolean;
+  sort: "datetime_utc.asc";
+  maxItems: number;
+};
+
+export const WIZARDS_SEATGEEK_SLUG = "washington-wizards";
+
+/** Actor input for the Wizards schedule. Event count is always the capped apifyMaxEvents. */
+export function apifyActorInput(flags: Flags): LenticSeatGeekInput | AhmedSeatGeekInput {
+  if (flags.apifyActor === "ahmed_jasarevic~seatgeek-scraper") {
+    return {
+      performerSlugs: [WIZARDS_SEATGEEK_SLUG],
+      searchQueries: [],
+      onlyOpen: true,
+      sort: "datetime_utc.asc",
+      maxItems: flags.apifyMaxEvents,
+    };
+  }
   return {
     mode: "performer",
-    performerSlug: "washington-wizards",
+    performerSlug: WIZARDS_SEATGEEK_SLUG,
     maxResults: flags.apifyMaxEvents,
+    maxPages: 3,
     includeListings: flags.apifyIncludeListings === true,
     enrichDetails: false,
   };
