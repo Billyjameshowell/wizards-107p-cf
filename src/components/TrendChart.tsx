@@ -306,6 +306,7 @@ export function DaysOutChart({
   const labelId = useId();
   const height = width < 520 ? 240 : 280;
   const pad = { left: 48, right: 14, top: 16, bottom: 32 };
+  const clipId = useId().replace(/:/g, "");
   const plotBottom = height - pad.bottom;
   const plotRight = width - pad.right;
 
@@ -321,9 +322,19 @@ export function DaysOutChart({
   const indexes = dots.map((dot) => dot.index * 100);
   for (const bucket of curve) indexes.push(bucket.index * 100);
   indexes.push(100);
-  let yMin = Math.min(...indexes);
-  let yMax = Math.max(...indexes);
-  const yPad = Math.max(2, (yMax - yMin) * 0.15);
+  const sorted = indexes.slice().sort((a, b) => a - b);
+  const quantile = (q: number) => {
+    const index = (sorted.length - 1) * q;
+    const low = Math.floor(index);
+    const high = Math.ceil(index);
+    const left = sorted[low] ?? 100;
+    const right = sorted[high] ?? left;
+    return left + (right - left) * (index - low);
+  };
+  // One wild check should not flatten the season pattern.
+  let yMin = Math.min(100, quantile(0.05));
+  let yMax = Math.max(100, quantile(0.95));
+  const yPad = Math.max(4, (yMax - yMin) * 0.2);
   yMin -= yPad;
   yMax += yPad;
   const xOf = (days: number) => pad.left + ((maxDays - days) / maxDays) * (plotRight - pad.left);
@@ -345,6 +356,11 @@ export function DaysOutChart({
           <title id={labelId}>
             Similar-seat prices compared with each game’s first median, by days before tip.
           </title>
+          <defs>
+            <clipPath id={clipId}>
+              <rect x={pad.left} y={pad.top} width={plotRight - pad.left} height={plotBottom - pad.top} />
+            </clipPath>
+          </defs>
           {yTicks.map((tick) => (
             <g key={tick}>
               <line x1={pad.left} x2={plotRight} y1={yOf(tick)} y2={yOf(tick)} stroke={GRID} />
@@ -362,19 +378,21 @@ export function DaysOutChart({
             strokeDasharray="4 4"
             strokeWidth="1.25"
           />
-          {dots.map((dot, index) => (
-            <circle
-              key={`${dot.daysOut}-${index}`}
-              cx={xOf(dot.daysOut)}
-              cy={yOf(dot.index * 100)}
-              r="3"
-              fill={NAVY}
-              opacity="0.28"
-            />
-          ))}
-          {curve.length > 1 ? (
-            <polyline fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinejoin="round" points={line} />
-          ) : null}
+          <g clipPath={`url(#${clipId})`}>
+            {dots.map((dot, index) => (
+              <circle
+                key={`${dot.daysOut}-${index}`}
+                cx={xOf(dot.daysOut)}
+                cy={yOf(dot.index * 100)}
+                r="3"
+                fill={NAVY}
+                opacity="0.28"
+              />
+            ))}
+            {curve.length > 1 ? (
+              <polyline fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinejoin="round" points={line} />
+            ) : null}
+          </g>
           {xTicks.map((days) => (
             <text key={days} x={xOf(days)} y={height - 8} textAnchor={days === 0 ? "end" : "middle"} fill={MUTED} fontSize="12">
               {days === 0 ? "Tip" : `${days}d`}

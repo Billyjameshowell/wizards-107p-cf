@@ -55,6 +55,10 @@ function percentClass(value: number | null): string {
   return value > 0 ? "text-sit-ink" : "text-sell-ink";
 }
 
+function bandPhrase(band: string): string {
+  return band.charAt(0).toLowerCase() + band.slice(1);
+}
+
 function monthDay(ymd: string | null): string {
   if (!ymd) return "";
   return formatGameDate(ymd, "").replace(/^\s+/, "");
@@ -326,7 +330,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
         </div>
         <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Price trends</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          Similar seats: {report.band.toLowerCase()}. Prices are per seat.
+          Similar seats: {bandPhrase(report.band)}. Prices are per seat.
         </p>
       </header>
 
@@ -420,7 +424,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
         <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-navy">How to read this</summary>
         <div className="mt-3 space-y-2">
           <p>
-            Similar seats are {report.band.toLowerCase()}, at least two together. The median is the middle of those
+            Similar seats are {bandPhrase(report.band)}, at least two together. The median is the middle of those
             prices. The cheapest line is the lowest of those same seats. Your ask is the number to type today. You keep
             95% of it, and both seats pay twice that.
           </p>
