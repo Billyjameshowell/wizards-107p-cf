@@ -241,7 +241,7 @@ export function PriceTrendChart({
                 opacity="0.35"
               />
               <circle cx={tipX} cy={yOf(projection.price)} r="5" fill="#f6f3ea" stroke={NAVY} strokeWidth="2">
-                <title>{`Rough game-day price ${dollars(projection.price)}`}</title>
+                <title>{`Estimated price by tip ${dollars(projection.price)}`}</title>
               </circle>
             </g>
           ) : null}

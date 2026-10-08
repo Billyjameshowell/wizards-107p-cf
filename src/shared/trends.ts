@@ -9,7 +9,14 @@ import {
   type CompListing,
 } from "./book";
 import {
-  projectTipPrice,
+  fitMarketModel,
+  isNationalTv,
+  isWeekendGame,
+  modelExplainer,
+  NOT_ENOUGH_DATA,
+  opponentTier,
+  projectGame,
+  type MarketRow,
   type PriceProjection,
 } from "./price-model";
 import { daysUntil, suggestFromMedian, type Demand } from "./pricing";
@@ -37,6 +44,8 @@ export type TrendPull = {
   median: number | null;
   getIn: number | null;
   liveAsk: number | null;
+  compCount?: number | null;
+  listingCount?: number | null;
   legacyLabel: string | null;
   /** Legacy backfill only. Never copied onto the public report. */
   payload: unknown;
@@ -59,6 +68,10 @@ export type TrendsGameSeed = {
   type: string;
   demand: Demand | null;
   bookMedian: number | null;
+  notes?: string;
+  nationalTv?: boolean;
+  /** Wizards win rate on the morning of the check, when we have one. */
+  wizardsWinRate?: number | null;
 };
 
 export type TrendPoint = {
@@ -109,6 +122,9 @@ export type TrendsReport = {
   gamesWithChecks: number;
   games: TrendsGame[];
   daysOutCurve: DaysOutBucket[];
+  /** Plain-language note. No fit internals. */
+  modelNote: string;
+  early: boolean;
 };
 
 type Kind = keyof typeof RANK;
@@ -120,6 +136,8 @@ type Observation = {
   opponent: string | null;
   median: number;
   cheapest: number | null;
+  /** Comparable seats that day, when the pull saved a count. */
+  supply: number | null;
   kind: Kind;
 };
 
@@ -219,6 +237,7 @@ function fromLegacy(pull: TrendPull): Observation | null {
     opponent: pull.opponent,
     median,
     cheapest: plausibleCheapest(floor ?? getIn, median),
+    supply: supplyOf(pull),
     kind: going != null ? "going" : "live",
   };
 }
@@ -234,6 +253,7 @@ function observePull(pull: TrendPull, listings: readonly CompListing[]): Observa
       opponent: pull.opponent,
       median: quote.median,
       cheapest: quote.cheapest,
+      supply: quote.count,
       kind: "listings",
     };
   }
@@ -248,8 +268,15 @@ function observePull(pull: TrendPull, listings: readonly CompListing[]): Observa
     opponent: pull.opponent,
     median,
     cheapest: plausibleCheapest(money(pull.getIn), median),
+    supply: supplyOf(pull),
     kind: "column",
   };
+}
+
+function supplyOf(pull: TrendPull): number | null {
+  const count = pull.compCount ?? pull.listingCount;
+  if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return null;
+  return Math.round(count);
 }
 
 /**
@@ -294,10 +321,10 @@ function prefer(current: Observation, next: Observation): Observation {
           ? next
           : current;
   const other = winner === current ? next : current;
-  if (winner.cheapest == null && other.cheapest != null) {
-    return { ...winner, cheapest: other.cheapest };
-  }
-  return winner;
+  const cheapest = winner.cheapest ?? other.cheapest;
+  const supply = winner.supply ?? other.supply;
+  if (cheapest === winner.cheapest && supply === winner.supply) return winner;
+  return { ...winner, cheapest, supply };
 }
 
 function onePerDay(rows: readonly Observation[]): Map<string, Observation> {
@@ -370,13 +397,32 @@ function daysOutCurve(games: readonly TrendsGame[]): DaysOutBucket[] {
   return curve;
 }
 
-function emptyProjection(): PriceProjection {
+function emptyProjection(sentence = NOT_ENOUGH_DATA): PriceProjection {
   return {
     enough: false,
     price: null,
     low: null,
     high: null,
-    sentence: "Not enough data yet.",
+    sentence,
+    early: false,
+    todayPrice: null,
+    todayLow: null,
+    todayHigh: null,
+    suggestion: null,
+  };
+}
+
+function marketRow(seed: TrendsGameSeed, point: { date: string; daysOut: number; median: number; supply: number | null }): MarketRow {
+  return {
+    gameDate: seed.date,
+    snapshotDate: point.date,
+    daysOut: point.daysOut,
+    median: point.median,
+    tier: opponentTier(seed.opponent, seed.demand),
+    weekend: isWeekendGame(seed.weekday, seed.date),
+    nationalTv: isNationalTv(seed.notes, seed.nationalTv),
+    winRate: seed.wizardsWinRate ?? null,
+    supply: point.supply,
   };
 }
 
@@ -389,6 +435,28 @@ export function buildTrendsReport(input: {
   row?: string;
   seats?: number[];
 }): TrendsReport {
+  return assembleTrends(input).report;
+}
+
+/** Same cleaned rows the trends page fits, so a saved cron fit matches the page. */
+export function cleanedMarketRows(input: {
+  today: string;
+  games: readonly TrendsGameSeed[];
+  pulls: readonly TrendPull[];
+  listings: readonly TrendListing[];
+}): MarketRow[] {
+  return assembleTrends(input).market;
+}
+
+function assembleTrends(input: {
+  today: string;
+  games: readonly TrendsGameSeed[];
+  pulls: readonly TrendPull[];
+  listings: readonly TrendListing[];
+  section?: string;
+  row?: string;
+  seats?: number[];
+}): { report: TrendsReport; market: MarketRow[] } {
   const listingsByPull = new Map<number, CompListing[]>();
   for (const row of input.listings) {
     const list = listingsByPull.get(row.pullId) ?? [];
@@ -427,6 +495,8 @@ export function buildTrendsReport(input: {
     });
   }
 
+  const market: MarketRow[] = [];
+  const latestSupply = new Map<string, number | null>();
   const games: TrendsGame[] = [];
   for (const seed of seeds.values()) {
     const rows = (byGame.get(seed.date) ?? [])
@@ -434,14 +504,25 @@ export function buildTrendsReport(input: {
       .sort((a, b) => a.etDate.localeCompare(b.etDate) || a.pulledAt.localeCompare(b.pulledAt));
     const series: TrendPoint[] = [];
     for (const row of rows) {
-      const daysOut = daysUntil(seed.date, row.etDate);
-      if (daysOut == null) continue;
+      const pointDays = daysUntil(seed.date, row.etDate);
+      if (pointDays == null) continue;
       series.push({
         date: row.etDate,
-        daysOut,
+        daysOut: pointDays,
         median: roundMoney(row.median),
         cheapest: row.cheapest == null ? null : roundMoney(row.cheapest),
       });
+      if (pointDays >= 0) {
+        market.push(
+          marketRow(seed, {
+            date: row.etDate,
+            daysOut: pointDays,
+            median: row.median,
+            supply: row.supply,
+          }),
+        );
+        latestSupply.set(seed.date, row.supply);
+      }
     }
     const daysOut = daysUntil(seed.date, input.today);
     const latest = series[series.length - 1] ?? null;
@@ -463,24 +544,6 @@ export function buildTrendsReport(input: {
             daysOut,
             demand: seed.demand,
           }).typeIn;
-    const projection =
-      daysOut == null
-        ? emptyProjection()
-        : projectTipPrice(
-            series.map((point) => ({
-              date: point.date,
-              daysOut: point.daysOut,
-              median: point.median,
-              cheapest: point.cheapest,
-            })),
-            {
-              date: seed.date,
-              opponent: seed.opponent,
-              type: seed.type,
-              weekday: seed.weekday,
-              daysOut,
-            },
-          );
 
     games.push({
       date: seed.date,
@@ -498,7 +561,26 @@ export function buildTrendsReport(input: {
       ask,
       keep: ask == null ? null : keepFromTypeIn(ask),
       pair: ask == null ? null : pairFromTypeIn(ask),
-      projection,
+      projection: daysOut == null ? emptyProjection() : emptyProjection(NOT_ENOUGH_DATA),
+    });
+  }
+
+  const fit = fitMarketModel(market, input.today);
+  for (const game of games) {
+    if (game.daysOut == null) continue;
+    const seed = seeds.get(game.date);
+    if (!seed) continue;
+    game.projection = projectGame(fit, {
+      gameDate: game.date,
+      daysOut: game.daysOut,
+      tier: opponentTier(seed.opponent, seed.demand),
+      weekend: isWeekendGame(seed.weekday, seed.date),
+      nationalTv: isNationalTv(seed.notes, seed.nationalTv),
+      winRate: seed.wizardsWinRate ?? null,
+      supply: latestSupply.get(game.date) ?? null,
+      snapshots: game.checks,
+      liveMedian: game.latestMedian,
+      attendValue: 0,
     });
   }
 
@@ -517,15 +599,20 @@ export function buildTrendsReport(input: {
   }
 
   return {
-    today: input.today,
-    section: input.section ?? "107",
-    row: input.row ?? "P",
-    seats: input.seats ?? [1, 2],
-    band: SIMILAR_SEATS,
-    firstCheck,
-    lastCheck,
-    gamesWithChecks,
-    games,
-    daysOutCurve: daysOutCurve(games),
+    report: {
+      today: input.today,
+      section: input.section ?? "107",
+      row: input.row ?? "P",
+      seats: input.seats ?? [1, 2],
+      band: SIMILAR_SEATS,
+      firstCheck,
+      lastCheck,
+      gamesWithChecks,
+      games,
+      daysOutCurve: daysOutCurve(games),
+      modelNote: modelExplainer(),
+      early: fit.ok ? fit.early : true,
+    },
+    market,
   };
 }

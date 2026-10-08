@@ -218,6 +218,9 @@ function SeasonTable({
                       {formatMoney(game.projection.low)} – {formatMoney(game.projection.high)}
                     </span>
                   ) : null}
+                  {game.projection.early ? (
+                    <span className="mt-0.5 block text-xs font-medium text-muted-foreground">Early estimate</span>
+                  ) : null}
                 </TableCell>
               </TableRow>
             ))}
@@ -274,6 +277,9 @@ function SeasonCards({ games }: { games: TrendsGame[] }) {
               <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">By tip</dt>
               <dd className="text-base font-semibold tabular-nums text-navy">
                 {game.projection.enough ? formatMoney(game.projection.price) : "Not enough data yet."}
+                {game.projection.early ? (
+                  <span className="mt-0.5 block text-xs font-medium text-muted-foreground">Early estimate</span>
+                ) : null}
               </dd>
             </div>
           </dl>
@@ -430,11 +436,15 @@ function SeasonView({ report }: { report: TrendsReport }) {
           </p>
           <p>
             7-day change compares the latest median with the one from about a week earlier. Since first check compares
-            it with the first median we saved. By tip is only a rough sketch from this game’s recent pace. It is not a
-            promise. A game without enough checks says so instead of guessing.
+            it with the first median we saved. By tip is the model’s game-day price for similar seats. A game with
+            fewer than five checks says there is not enough data yet.
           </p>
         </div>
       </details>
+      <section className="mt-4 rounded-xl border border-line bg-card px-4 py-3 text-sm leading-relaxed text-[#3d4654]">
+        <h2 className="text-base font-semibold text-navy">How the model works</h2>
+        <p className="mt-2">{report.modelNote}</p>
+      </section>
     </div>
   );
 }
@@ -470,19 +480,28 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
       </p>
 
       <section className="mt-1 rounded-2xl border border-line bg-card px-4 py-4">
+        {game.projection.early ? (
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Early estimate</p>
+        ) : null}
         <p className="text-lg font-medium leading-snug text-navy">{game.projection.sentence}</p>
-        {game.projection.enough && game.projection.low != null && game.projection.high != null ? (
-          <p className="mt-2 text-sm text-[#3d4654]">
-            Rough range {formatMoney(game.projection.low)} to {formatMoney(game.projection.high)} per seat. This is a
-            pace sketch, not a promise.
-          </p>
+        {game.projection.suggestion ? (
+          <p className="mt-2 text-sm text-[#3d4654]">{game.projection.suggestion.sentence}</p>
         ) : null}
       </section>
 
       <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Stat label="Median" value={formatMoney(game.latestMedian)} />
+        <Stat label="Estimated today" value={formatMoney(game.projection.todayPrice)} />
         <Stat label="Cheapest similar seat" value={formatMoney(game.latestCheapest)} />
         <Stat label="Your ask" value={formatMoney(game.ask)} />
+        <Stat
+          label="Suggested ask"
+          value={
+            game.projection.suggestion?.hold
+              ? "Hold"
+              : formatMoney(game.projection.suggestion?.ask ?? null)
+          }
+        />
         <Stat label="You keep" value={formatMoney(game.keep)} />
         <Stat label="Both seats" value={formatMoney(game.pair)} />
         <Stat label="7-day" value={formatSignedPercent(game.change7d)} tone={percentClass(game.change7d)} />
@@ -509,6 +528,11 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
           />
         </div>
       </section>
+
+      <details className="mt-4 rounded-xl border border-line bg-card px-4 py-3 text-sm leading-relaxed text-[#3d4654]">
+        <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-navy">How the model works</summary>
+        <p className="mt-3">{report.modelNote}</p>
+      </details>
 
       <details className="mt-4 rounded-xl border border-line bg-card px-4 py-3 text-sm leading-relaxed text-[#3d4654]">
         <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-navy">Numbers behind the chart</summary>

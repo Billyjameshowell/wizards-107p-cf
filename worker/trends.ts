@@ -21,6 +21,8 @@ type PullSql = {
   median: number | null;
   get_in: number | null;
   live_ask: number | null;
+  comp_count: number | null;
+  listing_count: number | null;
   legacy_label: string | null;
   payload_json: string | null;
 };
@@ -44,13 +46,13 @@ function parsePayload(value: string | null, source: string): unknown {
   }
 }
 
-async function loadPulls(env: Env): Promise<TrendPull[]> {
+export async function loadTrendPulls(env: Env): Promise<TrendPull[]> {
   const pulls: TrendPull[] = [];
   let offset = 0;
   for (;;) {
     const page = await env.DB.prepare(
       `SELECT id, pulled_at, et_date, source, game_date, opponent, median, get_in, live_ask,
-              legacy_label,
+              comp_count, listing_count, legacy_label,
               CASE WHEN source = 'legacy-box' THEN payload_json ELSE NULL END AS payload_json
        FROM price_pulls
        WHERE game_date IS NOT NULL
@@ -71,6 +73,8 @@ async function loadPulls(env: Env): Promise<TrendPull[]> {
         median: row.median,
         getIn: row.get_in,
         liveAsk: row.live_ask,
+        compCount: row.comp_count,
+        listingCount: row.listing_count,
         legacyLabel: row.legacy_label,
         payload: parsePayload(row.payload_json, row.source),
       });
@@ -81,7 +85,7 @@ async function loadPulls(env: Env): Promise<TrendPull[]> {
   return pulls;
 }
 
-async function loadListings(env: Env): Promise<TrendListing[]> {
+export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
   const listings: TrendListing[] = [];
   let offset = 0;
   for (;;) {
@@ -111,7 +115,7 @@ async function loadListings(env: Env): Promise<TrendListing[]> {
   return listings;
 }
 
-function toSeed(game: Game): TrendsGameSeed {
+export function toSeed(game: Game): TrendsGameSeed {
   return {
     date: game.date,
     opponent: game.opponent,
@@ -120,6 +124,7 @@ function toSeed(game: Game): TrendsGameSeed {
     type: game.type,
     demand: demandOf(game),
     bookMedian: compMedianOf(game),
+    notes: game.notes,
   };
 }
 
@@ -127,7 +132,7 @@ export async function trendsResponse(env: Env, now = new Date()): Promise<Respon
   try {
     await ensureArchiveBackfill(env);
     const book = await loadLiveBook(env);
-    const [pulls, listings] = await Promise.all([loadPulls(env), loadListings(env)]);
+    const [pulls, listings] = await Promise.all([loadTrendPulls(env), loadTrendListings(env)]);
     const report = buildTrendsReport({
       today: etYmd(now),
       section: book.section,

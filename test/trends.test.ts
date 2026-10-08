@@ -124,9 +124,8 @@ describe("buildTrendsReport", () => {
     expect(row?.change7d).toBe(5.6);
     expect(row?.changeSinceFirst).toBe(-5);
     expect(row?.checks).toBe(3);
-    expect(row?.projection.enough).toBe(true);
-    expect(row?.projection.low).not.toBeNull();
-    expect(row?.projection.high).not.toBeNull();
+    expect(row?.projection.enough).toBe(false);
+    expect(row?.projection.sentence).toBe(NOT_ENOUGH_DATA);
   });
 
   it("reads the legacy backfill into a public report with no raw fields", () => {
@@ -168,8 +167,12 @@ describe("buildTrendsReport", () => {
     expect(bucks?.latestCheapest).toBeLessThan(120);
     expect(bucks?.changeSinceFirst).toBeLessThan(0);
     expect(bucks?.projection.enough).toBe(true);
-    expect(bucks?.projection.sentence).toMatch(/dropped \d+% in \d+ weeks/);
+    expect(bucks?.projection.early).toBe(true);
+    expect(bucks?.projection.sentence).toMatch(/Early estimate/);
+    expect(bucks?.projection.sentence).toMatch(/by tip/);
     expect(bucks?.projection.price).not.toBeNull();
+    expect(bucks?.projection.todayPrice).not.toBeNull();
+    expect(bucks?.projection.suggestion?.sentence).toMatch(/Nothing is listed for you/);
     expect(bucks?.ask).not.toBeNull();
 
     const pistons = report.games.find((row) => row.date === "2026-10-10");

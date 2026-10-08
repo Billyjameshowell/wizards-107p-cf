@@ -10,6 +10,7 @@ import { runApify } from "./adapters/apify";
 import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
 import { archiveObserved, ensureArchiveBackfill, rowsForAdapter } from "./archive-store";
+import { refitPriceModel } from "./model-fit";
 import {
   loadLiveBook,
   readCompHistory,
@@ -201,6 +202,18 @@ export async function runIngest(
   env: Env,
   trigger: IngestTrigger,
   now = new Date(),
+): Promise<IngestSummary> {
+  try {
+    return await runIngestOnce(env, trigger, now);
+  } finally {
+    await refitPriceModel(env, trigger, now);
+  }
+}
+
+async function runIngestOnce(
+  env: Env,
+  trigger: IngestTrigger,
+  now: Date,
 ): Promise<IngestSummary> {
   try {
     await ensureArchiveBackfill(env);
