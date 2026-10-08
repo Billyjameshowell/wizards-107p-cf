@@ -10,33 +10,143 @@ import {
 } from "../../src/shared/guardrails";
 import { dateFromLocal, type AdapterContext, type AdapterResult, type MarketPoint } from "./types";
 
-const ACTOR = "lentic_clockss~seatgeek-scraper";
 const HOME_VENUE = "capital-one-arena";
-
-type SeatGeekRow = {
-  eventId?: string;
-  title?: string;
-  name?: string;
-  datetimeUtc?: string;
-  datetimeLocal?: string;
-  venueSlug?: string;
-  venueName?: string;
-  lowestPrice?: number;
-  medianPrice?: number;
-  listingCount?: number;
-};
+const LOG_TAIL_CHARS = 4000;
 
 type ApifyRun = {
   id?: string;
   status?: string;
+  statusMessage?: string;
   defaultDatasetId?: string;
   usageTotalUsd?: number;
+  buildNumber?: string;
 };
 
-function isHome(row: SeatGeekRow): boolean {
-  const slug = (row.venueSlug ?? "").toLowerCase();
-  const name = (row.venueName ?? "").toLowerCase();
-  return slug === HOME_VENUE || name.includes("capital one arena");
+/** One event row, read loosely so either supported actor (or a renamed field) still maps. */
+export type SeatGeekEventPoint = {
+  date: string;
+  home: boolean;
+  /** True/false when the row names its teams; null when it carries no title at all. */
+  wizards: boolean | null;
+  getIn: number | null;
+  median: number | null;
+  listingCount: number | null;
+  listings: unknown;
+};
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function price(value: unknown): number | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function count(value: unknown): number | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
+function first<T>(...values: (T | null | undefined)[]): T | null {
+  for (const value of values) if (value != null) return value;
+  return null;
+}
+
+/**
+ * Map one dataset row to a dated price point. Handles the flat shape
+ * (lentic_clockss: lowestPrice/medianPrice/listingCount, venueSlug) and the
+ * nested shapes (priceRange.*, stats.*, venue.*) used by other SeatGeek actors.
+ */
+export function seatGeekEventPoint(raw: unknown): SeatGeekEventPoint | null {
+  const row = record(raw);
+  if (!row) return null;
+  const recordType = str(row.recordType)?.toLowerCase();
+  if (recordType && recordType !== "event") return null;
+
+  const venue = record(row.venue);
+  const stats = record(row.stats);
+  const range = record(row.priceRange) ?? record(row.priceStats) ?? record(row.prices);
+  const date =
+    dateFromLocal(str(row.datetimeLocal) ?? str(row.datetime_local) ?? str(row.dateTimeLocal)) ??
+    dateFromLocal(str(row.datetimeUtc) ?? str(row.datetime_utc) ?? str(row.date));
+  if (!date) return null;
+
+  const venueText = [
+    str(row.venueSlug),
+    str(row.venueName),
+    str(venue?.slug),
+    str(venue?.name),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const home = venueText.includes(HOME_VENUE) || venueText.includes("capital one arena");
+
+  const performerNames = Array.isArray(row.performerNames) ? row.performerNames : [];
+  const performers = Array.isArray(row.performers) ? row.performers : [];
+  const titleText = [
+    str(row.title),
+    str(row.name),
+    str(row.shortTitle),
+    str(row.primaryPerformer),
+    ...performerNames.map(str),
+    ...performers.map((p) => str(record(p)?.slug) ?? str(record(p)?.name)),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const wizards = titleText === "" ? null : titleText.includes("wizards");
+
+  const listingsValue = row.listings;
+  return {
+    date,
+    home,
+    wizards,
+    getIn: first(
+      price(row.lowestPrice),
+      price(row.lowest_price),
+      price(range?.lowestPrice),
+      price(range?.lowest_price),
+      price(stats?.lowest_price),
+      price(stats?.lowestPrice),
+    ),
+    median: first(
+      price(row.medianPrice),
+      price(row.median_price),
+      price(range?.medianPrice),
+      price(range?.median_price),
+      price(stats?.median_price),
+      price(stats?.medianPrice),
+    ),
+    listingCount: first(
+      count(row.listingCount),
+      count(row.listing_count),
+      count(range?.listingCount),
+      count(range?.listing_count),
+      count(stats?.listing_count),
+      count(stats?.listingCount),
+      Array.isArray(listingsValue) ? listingsValue.length : null,
+    ),
+    listings: listingsValue,
+  };
+}
+
+/** Home Wizards games only, one point per date (first row wins). */
+export function homePointsFromRows(rows: unknown[]): { date: string; point: SeatGeekEventPoint }[] {
+  const byDate = new Map<string, SeatGeekEventPoint>();
+  for (const raw of rows) {
+    const point = seatGeekEventPoint(raw);
+    if (!point || !point.home || point.wizards === false) continue;
+    if (!byDate.has(point.date)) byDate.set(point.date, point);
+  }
+  return [...byDate.entries()].map(([date, point]) => ({ date, point }));
 }
 
 function terminal(status: string | undefined): boolean {
@@ -71,10 +181,27 @@ async function apifyJson(
   return { status: res.status, body };
 }
 
+/** Last few KB of the run log, so an empty run says why in the archive. Never throws. */
+async function apifyLogTail(token: string, runId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/log`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "text/plain" },
+    });
+    if (!res.ok) {
+      await res.body?.cancel();
+      return `log_http_${res.status}`;
+    }
+    const text = await res.text();
+    return text.length > LOG_TAIL_CHARS ? text.slice(-LOG_TAIL_CHARS) : text;
+  } catch (error) {
+    return `log_error ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 function apifyCost(body: unknown): number | null {
   if (!body || typeof body !== "object") return null;
-  const record = body as { data?: ApifyRun; usageTotalUsd?: number };
-  const value = record.data?.usageTotalUsd ?? record.usageTotalUsd;
+  const value = (body as { data?: ApifyRun; usageTotalUsd?: number }).data?.usageTotalUsd ??
+    (body as { usageTotalUsd?: number }).usageTotalUsd;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
@@ -88,6 +215,10 @@ function failed(status: number | null, error: string, paid: boolean, raw?: unkno
     raw: raw ?? null,
     note: "apify run",
   };
+}
+
+export function apifyRunUrl(actor: string, query: Record<string, string>): string {
+  return `https://api.apify.com/v2/acts/${actor}/runs?${new URLSearchParams(query)}`;
 }
 
 export async function runApify(
@@ -114,29 +245,36 @@ export async function runApify(
   }
 
   const token = ctx.env.APIFY_TOKEN as string;
+  const actor = flags.apifyActor;
   const input = apifyActorInput(flags);
-  const qs = new URLSearchParams({
+  const query: Record<string, string> = {
     maxTotalChargeUsd: flags.apifyMaxTotalChargeUsd.toFixed(2),
     waitForFinish: "60",
     timeout: "180",
-  });
+  };
+  if (flags.apifyActorBuild) query.build = flags.apifyActorBuild;
+  const runMeta = { actor, build: flags.apifyActorBuild ?? "default", input };
 
-  const started = await apifyJson(
-    token,
-    `https://api.apify.com/v2/actors/${ACTOR}/runs?${qs}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    },
-  );
+  const started = await apifyJson(token, apifyRunUrl(actor, query), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 
   if (isAbortHttpStatus(started.status)) {
     spend.sources.apify = openCircuit(spend.sources.apify, etDate, `start_${started.status}`);
     return {
       result: { source: "apify", paid: false, aborted: `http_${started.status}`, points: [] },
       spend,
-      observations: [failed(started.status, `http_${started.status}`, false, started.body)],
+      observations: [failed(started.status, `http_${started.status}`, false, { ...runMeta, body: started.body })],
+    };
+  }
+
+  if (started.status >= 400) {
+    return {
+      result: { source: "apify", paid: false, aborted: `start_${started.status}`, points: [] },
+      spend,
+      observations: [failed(started.status, `start_${started.status}`, false, { ...runMeta, body: started.body })],
     };
   }
 
@@ -147,11 +285,13 @@ export async function runApify(
     return {
       result: { source: "apify", paid: true, aborted: "no_run_id", points: [] },
       spend,
-      observations: [failed(started.status, "no_run_id", true, started.body)],
+      observations: [failed(started.status, "no_run_id", true, { ...runMeta, body: started.body })],
     };
   }
 
   let status = run.status;
+  let statusMessage = run.statusMessage ?? null;
+  let buildNumber = run.buildNumber ?? null;
   let datasetId = run.defaultDatasetId;
   let costUsd = apifyCost(started.body);
   for (let i = 0; i < 15 && !terminal(status); i += 1) {
@@ -167,21 +307,38 @@ export async function runApify(
     }
     const data = (poll.body as { data?: ApifyRun })?.data;
     status = data?.status;
+    statusMessage = data?.statusMessage ?? statusMessage;
+    buildNumber = data?.buildNumber ?? buildNumber;
     datasetId = data?.defaultDatasetId ?? datasetId;
     costUsd = apifyCost(poll.body) ?? costUsd;
   }
+
+  const diagnostics = async () => ({
+    ...runMeta,
+    runId: run.id,
+    status,
+    statusMessage,
+    buildNumber,
+    logTail: await apifyLogTail(token, run.id as string),
+  });
 
   if (status !== "SUCCEEDED" || !datasetId) {
     return {
       result: { source: "apify", paid: true, aborted: status ?? "run_incomplete", points: [] },
       spend,
-      observations: [failed(null, status ?? "run_incomplete", true)],
+      observations: [
+        {
+          ...failed(null, status ?? "run_incomplete", true, await diagnostics()),
+          costUsd,
+          note: `apify run ${run.id}`,
+        },
+      ],
     };
   }
 
   const items = await apifyJson(
     token,
-    `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json&limit=${flags.apifyMaxEvents}`,
+    `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json&limit=${flags.apifyMaxEvents + 1}`,
   );
   if (isAbortHttpStatus(items.status)) {
     spend.sources.apify = openCircuit(spend.sources.apify, etDate, `items_${items.status}`);
@@ -192,45 +349,49 @@ export async function runApify(
     };
   }
 
-  const rows = (Array.isArray(items.body) ? items.body : []) as SeatGeekRow[];
+  const rows = Array.isArray(items.body) ? (items.body as unknown[]) : [];
+  const home = homePointsFromRows(rows);
   const points: MarketPoint[] = [];
+  const empty = home.length === 0;
   const observations: ObservedPull[] = [
     {
       gameDate: null,
-      status: "ok",
+      status: empty ? "empty" : "ok",
       paid: true,
       costUsd,
-      note: run.id ? `apify run ${run.id}` : "apify run",
-      raw: items.body,
+      error: empty ? (rows.length === 0 ? "apify_zero_rows" : "apify_no_home_rows") : null,
+      note: `apify run ${run.id} (${actor}${buildNumber ? ` ${buildNumber}` : ""})`,
+      raw: empty ? { ...(await diagnostics()), rows: items.body } : items.body,
       listingCount: rows.length,
     },
   ];
-  for (const row of rows) {
-    if (!isHome(row)) continue;
-    const date = dateFromLocal(row.datetimeLocal) ?? dateFromLocal(row.datetimeUtc);
-    if (!date) continue;
-    const listings = (row as SeatGeekRow & { listings?: unknown }).listings;
+  for (const { date, point } of home) {
     points.push({
       date,
-      getIn: row.lowestPrice ?? null,
-      median: row.medianPrice ?? null,
-      listingCount: row.listingCount ?? null,
+      getIn: point.getIn,
+      median: point.median,
+      listingCount: point.listingCount,
     });
     observations.push({
       gameDate: date,
       opponent: ctx.games.find((game) => game.date === date)?.opponent ?? null,
       status: "ok",
       paid: true,
-      getIn: row.lowestPrice ?? null,
-      median: row.medianPrice ?? null,
-      listingCount: row.listingCount ?? null,
-      listings,
+      getIn: point.getIn,
+      median: point.median,
+      listingCount: point.listingCount,
+      listings: Array.isArray(point.listings) ? point.listings : undefined,
       note: "cost is on the apify run row",
     });
   }
 
   return {
-    result: { source: "apify", paid: true, points },
+    result: {
+      source: "apify",
+      paid: true,
+      aborted: empty ? (rows.length === 0 ? "zero_rows" : "no_home_rows") : undefined,
+      points,
+    },
     spend,
     observations,
   };
