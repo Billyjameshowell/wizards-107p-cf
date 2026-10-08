@@ -1,3 +1,4 @@
+import type { ObservedPull } from "../../src/shared/archive";
 import {
   apifyActorInput,
   canStartPaidSource,
@@ -29,6 +30,7 @@ type ApifyRun = {
   id?: string;
   status?: string;
   defaultDatasetId?: string;
+  usageTotalUsd?: number;
 };
 
 function isHome(row: SeatGeekRow): boolean {
@@ -69,11 +71,30 @@ async function apifyJson(
   return { status: res.status, body };
 }
 
+function apifyCost(body: unknown): number | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as { data?: ApifyRun; usageTotalUsd?: number };
+  const value = record.data?.usageTotalUsd ?? record.usageTotalUsd;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function failed(status: number | null, error: string, paid: boolean, raw?: unknown): ObservedPull {
+  return {
+    gameDate: null,
+    status: "failed",
+    paid,
+    httpStatus: status,
+    error,
+    raw: raw ?? null,
+    note: "apify run",
+  };
+}
+
 export async function runApify(
   ctx: AdapterContext,
   spend: SpendState,
   etDate: string,
-): Promise<{ result: AdapterResult; spend: SpendState }> {
+): Promise<{ result: AdapterResult; spend: SpendState; observations: ObservedPull[] }> {
   const flags = parseFlags(ctx.env);
   const gate = canStartPaidSource({
     flags,
@@ -88,6 +109,7 @@ export async function runApify(
     return {
       result: { source: "apify", paid: false, aborted: gate.reason, points: [] },
       spend,
+      observations: [],
     };
   }
 
@@ -114,6 +136,7 @@ export async function runApify(
     return {
       result: { source: "apify", paid: false, aborted: `http_${started.status}`, points: [] },
       spend,
+      observations: [failed(started.status, `http_${started.status}`, false, started.body)],
     };
   }
 
@@ -124,11 +147,13 @@ export async function runApify(
     return {
       result: { source: "apify", paid: true, aborted: "no_run_id", points: [] },
       spend,
+      observations: [failed(started.status, "no_run_id", true, started.body)],
     };
   }
 
   let status = run.status;
   let datasetId = run.defaultDatasetId;
+  let costUsd = apifyCost(started.body);
   for (let i = 0; i < 15 && !terminal(status); i += 1) {
     await sleep(4000);
     const poll = await apifyJson(token, `https://api.apify.com/v2/actor-runs/${run.id}`);
@@ -137,17 +162,20 @@ export async function runApify(
       return {
         result: { source: "apify", paid: true, aborted: `http_${poll.status}`, points: [] },
         spend,
+        observations: [failed(poll.status, `http_${poll.status}`, true, poll.body)],
       };
     }
     const data = (poll.body as { data?: ApifyRun })?.data;
     status = data?.status;
     datasetId = data?.defaultDatasetId ?? datasetId;
+    costUsd = apifyCost(poll.body) ?? costUsd;
   }
 
   if (status !== "SUCCEEDED" || !datasetId) {
     return {
       result: { source: "apify", paid: true, aborted: status ?? "run_incomplete", points: [] },
       spend,
+      observations: [failed(null, status ?? "run_incomplete", true)],
     };
   }
 
@@ -160,25 +188,50 @@ export async function runApify(
     return {
       result: { source: "apify", paid: true, aborted: `http_${items.status}`, points: [] },
       spend,
+      observations: [failed(items.status, `http_${items.status}`, true, items.body)],
     };
   }
 
   const rows = (Array.isArray(items.body) ? items.body : []) as SeatGeekRow[];
   const points: MarketPoint[] = [];
+  const observations: ObservedPull[] = [
+    {
+      gameDate: null,
+      status: "ok",
+      paid: true,
+      costUsd,
+      note: run.id ? `apify run ${run.id}` : "apify run",
+      raw: items.body,
+      listingCount: rows.length,
+    },
+  ];
   for (const row of rows) {
     if (!isHome(row)) continue;
     const date = dateFromLocal(row.datetimeLocal) ?? dateFromLocal(row.datetimeUtc);
     if (!date) continue;
+    const listings = (row as SeatGeekRow & { listings?: unknown }).listings;
     points.push({
       date,
       getIn: row.lowestPrice ?? null,
       median: row.medianPrice ?? null,
       listingCount: row.listingCount ?? null,
     });
+    observations.push({
+      gameDate: date,
+      opponent: ctx.games.find((game) => game.date === date)?.opponent ?? null,
+      status: "ok",
+      paid: true,
+      getIn: row.lowestPrice ?? null,
+      median: row.medianPrice ?? null,
+      listingCount: row.listingCount ?? null,
+      listings,
+      note: "cost is on the apify run row",
+    });
   }
 
   return {
     result: { source: "apify", paid: true, points },
     spend,
+    observations,
   };
 }

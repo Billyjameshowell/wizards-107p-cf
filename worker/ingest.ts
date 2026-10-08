@@ -1,3 +1,4 @@
+import type { ObservedPull } from "../src/shared/archive";
 import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
 import { etDateFrom, parseFlags, type Flags } from "../src/shared/guardrails";
 import {
@@ -8,6 +9,7 @@ import {
 import { runApify } from "./adapters/apify";
 import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
+import { archiveObserved, ensureArchiveBackfill, rowsForAdapter } from "./archive-store";
 import {
   loadLiveBook,
   readCompHistory,
@@ -183,11 +185,28 @@ function flagsFromEnv(env: Env): Flags {
   return parseFlags(env);
 }
 
+async function saveArchive(
+  env: Env,
+  trigger: IngestTrigger,
+  now: Date,
+  batches: { source: string; rows: ObservedPull[] }[],
+): Promise<void> {
+  for (const batch of batches) {
+    if (batch.rows.length === 0) continue;
+    await archiveObserved(env, { trigger, now, source: batch.source, rows: batch.rows });
+  }
+}
+
 export async function runIngest(
   env: Env,
   trigger: IngestTrigger,
   now = new Date(),
 ): Promise<IngestSummary> {
+  try {
+    await ensureArchiveBackfill(env);
+  } catch (error) {
+    console.error("price archive backfill", error);
+  }
   const flags = flagsFromEnv(env);
   const etDate = etDateFrom(now);
   const book = await loadLiveBook(env);
@@ -247,17 +266,42 @@ export async function runIngest(
   }
 
   const ctx = { env, games: book.games, now };
+  const archives: { source: string; rows: ObservedPull[] }[] = [];
 
   if (flags.sources.includes("seatdata")) {
     const seat = await runSeatData(ctx, spend, etDate);
     spend = seat.spend;
     sources.push(seat.result);
+    archives.push({
+      source: "seatdata",
+      rows: rowsForAdapter({
+        aborted: seat.result.aborted,
+        paid: seat.result.paid,
+        points: seat.result.points,
+        observations: seat.observations,
+      }),
+    });
   }
 
   if (flags.sources.includes("apify")) {
     const apify = await runApify(ctx, spend, etDate);
     spend = apify.spend;
     sources.push(apify.result);
+    archives.push({
+      source: "apify",
+      rows: rowsForAdapter({
+        aborted: apify.result.aborted,
+        paid: apify.result.paid,
+        points: apify.result.points,
+        observations: apify.observations,
+      }),
+    });
+  }
+
+  try {
+    await saveArchive(env, trigger, now, archives);
+  } catch (error) {
+    console.error("price archive", error);
   }
 
   const hasPoints = sources.some((result) => result.points.length > 0);

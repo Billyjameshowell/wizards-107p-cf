@@ -4,6 +4,7 @@
 interface __BaseEnv_Env {
 	DB: D1Database;
 	BOOK: KVNamespace;
+	ARCHIVE?: R2Bucket;
 	SEATDATA_API_KEY?: string;
 	APIFY_TOKEN?: string;
 	CRON_SECRET?: string;

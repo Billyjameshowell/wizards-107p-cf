@@ -1,5 +1,7 @@
 /**
- * Official C3 React + Vite + Workers config, plus D1/KV, cron, and SAFE flags.
+ * Official C3 React + Vite + Workers config, plus D1/KV, cron, and production vars.
+ * `wrangler deploy` replaces dashboard vars with this file. Leave INGEST_ENABLED
+ * true and DRY_RUN false here. Caps below are the hard ceilings; do not raise them.
  * https://developers.cloudflare.com/workers/framework-guides/web-apps/react/
  */
 {
@@ -9,7 +11,7 @@
 	"compatibility_date": "2026-09-11",
 	"assets": {
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/api/*"]
+		"run_worker_first": ["/api/*", "/admin"]
 	},
 	"observability": {
 		"enabled": true
@@ -19,8 +21,8 @@
 		"crons": ["0 12 * * *"]
 	},
 	"vars": {
-		"INGEST_ENABLED": "false",
-		"DRY_RUN": "true",
+		"INGEST_ENABLED": "true",
+		"DRY_RUN": "false",
 		"SOURCES": "seatdata,apify",
 		"APIFY_INCLUDE_LISTINGS": "false",
 		"SEATDATA_BASE_URL": "https://api.seatdata.io",
@@ -41,6 +43,12 @@
 		{
 			"binding": "BOOK",
 			"id": "55280961d31940b692a03636f8ebb901"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "ARCHIVE",
+			"bucket_name": "wizards-107p-archive"
 		}
 	]
 }

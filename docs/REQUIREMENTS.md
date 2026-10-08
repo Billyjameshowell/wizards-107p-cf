@@ -26,7 +26,7 @@ The site **does not list tickets**. It tracks status. Nothing is posted to Ticke
 
 `SOURCES=seatdata,apify` (comma list). Adapters normalize into the book, then persist.
 
-1. **SeatData** — comps in 107 / 108 / 118 / 119, rows J–T, quantity ≥ 2. The suggestion uses the median of those listings, and leaves out one lone cheapest Section 107 Row P listing. It does not use the lowest price. Search is free; listings/sales consume pulls. Each successful listings check is saved in D1 `price_history` (one row per game per ET day; a later check that day replaces it). The middle blends those checks: recent days count more, a thin morning stays near the recent middle, and a morning with many comps follows the live median without taking the whole jump in one day. If the middle has stepped the same way on the last few busy checks, the blend leans a little further that way. A morning with no usable comps keeps the recent middle for 21 days, then shows no price. A game SeatData has not listed yet stays at no price until an event exists; the next run that sees the event can record the first real middle, because games with no check yet are looked at before games already checked. The same pull caps still apply.
+1. **SeatData** — comps in 107 / 108 / 118 / 119, rows J–T, quantity ≥ 2. The suggestion uses the median of those listings, and leaves out one lone cheapest Section 107 Row P listing. It does not use the lowest price. Search is free; listings/sales consume pulls. Each successful listings check is saved in D1 `price_history` (one row per game per ET day; a later check that day replaces it). The same pull is also appended, with every listing row, to the archive tables (`price_pulls`, `price_listings`); that archive is not trimmed. Raw JSON goes to R2. `GET /api/export` (Bearer `CRON_SECRET`, noindex, not linked on the page) dumps it. The middle blends those checks: recent days count more, a thin morning stays near the recent middle, and a morning with many comps follows the live median without taking the whole jump in one day. If the middle has stepped the same way on the last few busy checks, the blend leans a little further that way. A morning with no usable comps keeps the recent middle for 21 days, then shows no price. A game SeatData has not listed yet stays at no price until an event exists; the next run that sees the event can record the first real middle, because games with no check yet are looked at before games already checked. The same pull caps still apply.
 2. **Apify** `lentic_clockss/seatgeek-scraper` — cheap list only (`includeListings: false` unless `APIFY_INCLUDE_LISTINGS=true`). Home games at Capital One Arena. Map `lowestPrice` / `medianPrice` / `listingCount`. Those arena figures are saved on `price_history` and do not set the suggestion.
 
 Do not invent prices. TicketData scrape and auto-listing are out of scope.
@@ -35,15 +35,15 @@ Do not invent prices. TicketData scrape and auto-listing are out of scope.
 
 | Flag / cap | Default | Rule |
 | --- | --- | --- |
-| `INGEST_ENABLED` | `false` | No paid calls until flipped |
-| `DRY_RUN` | `true` | Even with ingest on, skip paid HTTP |
+| `INGEST_ENABLED` | on in `wrangler.jsonc` | Missing var still defaults off |
+| `DRY_RUN` | off in `wrangler.jsonc` | Missing var still defaults on |
 | SeatData pulls | 20 / run, 25 / ET-day | Env may lower, never raise |
 | Apify | `maxTotalChargeUsd=0.50`, max 50 events | Listings off unless flagged |
 | Paid attempts | 1 per source per run | Second try is blocked |
 | 429 / 5xx | Abort that source | Open an ET-day circuit breaker |
 | `/api/cron` | Bearer `CRON_SECRET` | Fail closed if secret missing |
 
-Unit tests in `test/guardrails.test.ts` lock these rules. Saving price history does not add a paid call. It runs only after a pull that already passed these gates. There is no new flag. `INGEST_ENABLED` stays false and `DRY_RUN` stays true.
+Unit tests in `test/guardrails.test.ts` lock the caps and the empty-env defaults. Production `wrangler.jsonc` sets ingest on and dry run off; `wrangler deploy` replaces dashboard vars with that file. Do not put the empty-env defaults back into `wrangler.jsonc`. Saving price history does not add a paid call. It runs only after a pull that already passed these gates. There is no new flag. Caps are not raised.
 
 ## HTTP and schedule
 
