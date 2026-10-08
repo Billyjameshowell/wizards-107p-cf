@@ -3,14 +3,14 @@
  *
  * Stage A fits log(comparable median) with plain least squares:
  * a shared natural cubic spline of days until tip, fixed effects, and a
- * per-game intercept shrunk toward the pack. Stage B scores candidate asks
- * with a hand-set sale curve. Nothing here lists a ticket.
+ * per-game intercept shrunk toward the pack. Stage B picks asks that add
+ * the most expected cash for the pair, then leans safer or more patient
+ * so the season can clear its goal. Nothing here lists a ticket.
  *
- * Swap the sale curve later when our own sales exist. Keep `fitMarketModel`
- * and `projectGame` as the call shape.
+ * Keep `fitMarketModel` and `projectGame` as the call shape.
  */
 
-import { PAIR_SEATS, SELLER_KEEP_RATE } from "./book";
+import { PAIR_SEATS, SEASON_COST_DEFAULT, SELLER_KEEP_RATE } from "./book";
 
 export const MODEL_VERSION = "1";
 export const NOT_ENOUGH_DATA = "Not enough data yet.";
@@ -21,8 +21,12 @@ export const TRUST_ROWS = 800;
 /** About half of a 43-game home slate. */
 export const TRUST_OBSERVED_GAMES = 22;
 export const HOME_SLATE = 43;
-/** Default value of going, until a per-game number is saved. */
-export const DEFAULT_ATTEND_VALUE = 0;
+/** Break-even net plus this share. 15% of $6,000 is a $6,900 season goal. */
+export const SEASON_CUSHION_DEFAULT = 0.15;
+/** A vanished pair this many days before tip can count as a possible sale. */
+export const LIKELY_SOLD_MIN_DAYS = 3;
+/** Same section, row, and quantity within this price band is a price edit. */
+export const PRICE_EDIT_BAND = 0.08;
 /** 80% of a normal curve sits inside ± this many standard deviations. */
 export const BAND_Z = 1.2815515655446004;
 
@@ -32,8 +36,8 @@ const KNOTS = [7, 21, 45, 90] as const;
 const LOG_CLAMP = 0.8;
 
 /**
- * Hand-set until we have our own sales. Higher asks and more competing
- * seats lower the chance; more days left raise it. Kept conservative.
+ * Hand-set until vanished listings and fetched sales are thick enough to move it.
+ * Higher asks and more competing seats lower the chance; more days left raise it.
  */
 export const SALE_PRIORS = {
   intercept: -1.2,
@@ -41,6 +45,87 @@ export const SALE_PRIORS = {
   logDays: 0.45,
   logSupply: -0.35,
 } as const;
+
+export type SaleCurve = {
+  intercept: number;
+  logRatio: number;
+  logDays: number;
+  logSupply: number;
+};
+
+/** One ask the cash plan can choose. `pair` is the cash if it sells. */
+export type AskOffer = {
+  ask: number;
+  chance: number;
+  pair: number;
+  expected: number;
+};
+
+export type CashGame = {
+  date: string;
+  opponent: string;
+  /** Sit. Left out of the cash plan. Sold games are not keeping. */
+  keeping: boolean;
+  sold: boolean;
+  banked: number;
+  offers: readonly AskOffer[];
+};
+
+export type SeasonLean = "safer" | "even" | "patient";
+
+export type SeasonOutlook = {
+  breakEven: number;
+  cushion: number;
+  target: number;
+  banked: number;
+  expectedRest: number;
+  expectedTotal: number;
+  chance: number;
+  lean: SeasonLean;
+  forSale: number;
+  kept: number;
+  /** For-sale games that have a price, so they are in the cash total. */
+  priced: number;
+  sentence: string;
+  asks: Record<string, AskOffer>;
+};
+
+export type SaleSample = {
+  sold: boolean;
+  certain: boolean;
+  ask: number;
+  predictedMedian: number;
+  daysOut: number;
+  supply: number;
+};
+
+export type CompSnap = {
+  gameDate: string;
+  etDate: string;
+  pulledAt: string;
+  daysOut: number;
+  section: string;
+  row: string;
+  quantity: number;
+  price: number;
+  supply: number | null;
+  median: number | null;
+};
+
+export type ProbableSale = {
+  gameDate: string;
+  seenDate: string;
+  goneDate: string;
+  daysOut: number;
+  section: string;
+  row: string;
+  quantity: number;
+  price: number;
+  certain: boolean;
+  externalId: string;
+  median: number | null;
+  supply: number | null;
+};
 
 const MARQUEE = new Set([
   "boston celtics",
@@ -103,16 +188,14 @@ export type GameQuery = {
   supply: number | null;
   snapshots: number;
   liveMedian: number | null;
-  attendValue?: number;
 };
 
 export type ListSuggestion = {
   ask: number | null;
   hold: boolean;
   saleChance: number | null;
-  /** Expected cash for both seats if listed at `ask`, after the 5% fee. */
+  /** Expected cash for both seats if offered at `ask`, after the 5% fee. */
   expectedKeep: number | null;
-  attendValue: number;
   sentence: string;
 };
 
@@ -237,11 +320,14 @@ export function trustBlend(rows: number, observedGames: number): { early: boolea
 export function modelExplainer(): string {
   return [
     "The estimate looks at similar-seat prices for every home game, not just this one.",
+    "Similar seats are sections 107, 108, 118, and 119, rows J through T, and only groups of at least two seats. A buyer of this pair compares those. Single seats are left out of the middle.",
     "It learns how those prices usually change as tip gets closer, then lets a hot or cold game sit a little above or below that path.",
-    "Opponent, a weekend tip, a national TV game, and how many similar seats are listed all nudge the number. The Wizards’ record does too, when that record is known.",
+    "Opponent, a weekend tip, a national TV game, and how many similar seats are for sale all nudge the number. The Wizards’ record does too, when that record is known.",
     "Until there is most of a season of checks, the number leans toward the latest middle of similar seats and is marked as an early estimate.",
     "A game with fewer than five checks says there is not enough data yet.",
-    "The suggested ask is a separate guess at a price that might sell, after the 5% fee, weighed against what the night is worth if you go. The chance of a sale is a rough stand-in until our own sales are known.",
+    "The season goal is $6,000 after fees, plus a 15% cushion. Each suggested ask is the per-seat price that adds the most expected cash for the pair, after the 5% fee. Games marked Sit are left out of that plan.",
+    "If the chance of clearing the goal is low, suggestions lean toward a price more likely to sell. If the chance is high, they can hold out for more.",
+    "A pair that vanishes well before tip is treated as a possible sale, not a sure one. Those notes slowly shape the chance of a sale.",
     "It is only a suggestion. Nothing is listed for you.",
   ].join(" ");
 }
@@ -324,7 +410,6 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
   if (game.daysOut < 0) return notEnough("This game has already tipped.");
   if (game.snapshots < MIN_SNAPSHOTS) return notEnough();
 
-  const attend = finiteOr(game.attendValue, DEFAULT_ATTEND_VALUE);
   const todayRaw = predictPrice(fit, game, game.daysOut);
   const tipRaw = predictPrice(fit, game, 0);
   if (!todayRaw || !tipRaw) return notEnough();
@@ -335,7 +420,6 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
     predictedMedian: today.price,
     daysOut: game.daysOut,
     supply: game.supply ?? 0,
-    attendValue: attend,
   });
 
   const earlyLead = fit.early ? "Early estimate. " : "";
@@ -362,65 +446,367 @@ export function saleProbability(args: {
   predictedMedian: number;
   daysOut: number;
   supply: number;
+  curve?: SaleCurve;
 }): number {
   const median = args.predictedMedian;
   if (!Number.isFinite(args.ask) || args.ask <= 0 || !Number.isFinite(median) || median <= 0) return 0;
+  const curve = args.curve ?? SALE_PRIORS;
   const ratio = Math.min(3, Math.max(0.25, args.ask / median));
   const days = Math.max(0, args.daysOut);
   const supply = Math.max(0, args.supply);
   const logit =
-    SALE_PRIORS.intercept +
-    SALE_PRIORS.logRatio * Math.log(ratio) +
-    SALE_PRIORS.logDays * Math.log(1 + days) +
-    SALE_PRIORS.logSupply * Math.log(1 + supply);
+    curve.intercept +
+    curve.logRatio * Math.log(ratio) +
+    curve.logDays * Math.log(1 + days) +
+    curve.logSupply * Math.log(1 + supply);
   return 1 / (1 + Math.exp(-logit));
+}
+
+/** Asks from 70% to 150% of the fair price, one row per whole-dollar ask. */
+export function askOffers(args: {
+  predictedMedian: number;
+  daysOut: number;
+  supply: number;
+  curve?: SaleCurve;
+}): AskOffer[] {
+  const fair = args.predictedMedian;
+  if (!Number.isFinite(fair) || fair <= 0) return [];
+  const byAsk = new Map<number, AskOffer>();
+  for (let step = 0; step <= 16; step += 1) {
+    const ask = Math.max(1, Math.round(fair * (0.7 + step * 0.05)));
+    const chance = saleProbability({
+      ask,
+      predictedMedian: fair,
+      daysOut: args.daysOut,
+      supply: args.supply,
+      curve: args.curve,
+    });
+    const pair = ask * PAIR_SEATS * SELLER_KEEP_RATE;
+    const offer: AskOffer = {
+      ask,
+      chance: Math.round(chance * 1000) / 1000,
+      pair: Math.round(pair * 100) / 100,
+      expected: Math.round(chance * pair * 100) / 100,
+    };
+    const prev = byAsk.get(ask);
+    if (!prev || offer.expected > prev.expected) byAsk.set(ask, offer);
+  }
+  return [...byAsk.values()].sort((a, b) => a.ask - b.ask);
+}
+
+export function bestExpectedOffer(offers: readonly AskOffer[]): AskOffer | null {
+  let best: AskOffer | null = null;
+  for (const offer of offers) {
+    if (!best || offer.expected > best.expected + 1e-9 || (Math.abs(offer.expected - best.expected) <= 1e-9 && offer.ask < best.ask)) {
+      best = offer;
+    }
+  }
+  return best;
 }
 
 export function suggestListPrice(args: {
   predictedMedian: number;
   daysOut: number;
   supply: number;
-  attendValue?: number;
+  curve?: SaleCurve;
 }): ListSuggestion {
-  const attend = finiteOr(args.attendValue, DEFAULT_ATTEND_VALUE);
-  const fair = args.predictedMedian;
-  if (!Number.isFinite(fair) || fair <= 0) {
-    return holdSuggestion(attend, "Not enough of a price to suggest an ask. Nothing is listed for you.");
+  const best = bestExpectedOffer(askOffers(args));
+  if (!best) return holdSuggestion("Not enough of a price to suggest an ask. Nothing is listed for you.");
+  return suggestionFromOffer(best);
+}
+
+export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSuggestion {
+  const chancePct = Math.round(offer.chance * 100);
+  const leanBit =
+    lean === "safer"
+      ? " The season chance is low, so this leans toward a price more likely to sell."
+      : lean === "patient"
+        ? " The season chance is high, so this can hold out for a little more."
+        : "";
+  return {
+    ask: offer.ask,
+    hold: false,
+    saleChance: offer.chance,
+    expectedKeep: offer.expected,
+    sentence: `Suggested ask: ${dollars(offer.ask)} a seat. The rough chance of a sale before tip is ${chancePct}%. Expected cash for the pair, after the 5% fee, is about ${dollars(offer.expected)}.${leanBit} This is only a suggestion. Nothing is listed for you.`,
+  };
+}
+
+export function sitSuggestion(sentence: string): ListSuggestion {
+  return holdSuggestion(sentence);
+}
+
+export function soldSuggestion(banked: number): ListSuggestion {
+  const cash = banked > 0 ? `, about ${dollars(banked)} after fees` : "";
+  return holdSuggestion(`These seats are already sold${cash}. Nothing is listed for you.`);
+}
+
+const SAFER_BELOW = 0.4;
+const PATIENT_ABOVE = 0.7;
+const SAFER_KEEP = 0.82;
+const PATIENT_KEEP = 0.88;
+const PRIOR_STRENGTH = 80;
+const CALIBRATE_MIN_ROWS = 40;
+const CALIBRATE_MIN_CLASS = 8;
+
+export function seasonTarget(breakEven = SEASON_COST_DEFAULT, cushion = SEASON_CUSHION_DEFAULT): number {
+  const base = Number.isFinite(breakEven) && breakEven > 0 ? breakEven : SEASON_COST_DEFAULT;
+  const extra = Number.isFinite(cushion) && cushion >= 0 ? cushion : SEASON_CUSHION_DEFAULT;
+  return Math.round(base * (1 + extra) * 100) / 100;
+}
+
+/**
+ * Pick the ask with the most expected cash on each for-sale game, then lean
+ * once. A low chance of clearing the goal prefers a higher-chance ask. A high
+ * chance allows a higher ask. One pass, so the lean does not chase itself.
+ */
+export function planSeason(
+  games: readonly CashGame[],
+  options?: { breakEven?: number; cushion?: number },
+): SeasonOutlook {
+  const breakEven = options?.breakEven ?? SEASON_COST_DEFAULT;
+  const cushion = options?.cushion ?? SEASON_CUSHION_DEFAULT;
+  const target = seasonTarget(breakEven, cushion);
+  const banked = round2(games.filter((game) => game.sold).reduce((sum, game) => sum + Math.max(0, game.banked), 0));
+  const open = games.filter((game) => !game.sold && !game.keeping && game.offers.length > 0);
+  const evPicks = new Map<string, AskOffer>();
+  for (const game of open) {
+    const best = bestExpectedOffer(game.offers);
+    if (best) evPicks.set(game.date, best);
+  }
+  const evChance = clearChance(
+    banked,
+    target,
+    [...evPicks.values()].map((offer) => ({ p: offer.chance, cash: offer.pair })),
+  );
+  const lean: SeasonLean = evChance < SAFER_BELOW ? "safer" : evChance > PATIENT_ABOVE ? "patient" : "even";
+  const asks: Record<string, AskOffer> = {};
+  for (const game of open) {
+    const picked = evPicks.get(game.date);
+    if (!picked) continue;
+    asks[game.date] = tiltOffer(game.offers, picked, lean);
+  }
+  const chosen = Object.values(asks);
+  const expectedRest = round2(chosen.reduce((sum, offer) => sum + offer.expected, 0));
+  const chance = clearChance(
+    banked,
+    target,
+    chosen.map((offer) => ({ p: offer.chance, cash: offer.pair })),
+  );
+  const outlook: SeasonOutlook = {
+    breakEven,
+    cushion,
+    target,
+    banked,
+    expectedRest,
+    expectedTotal: round2(banked + expectedRest),
+    chance: Math.round(chance * 1000) / 1000,
+    lean,
+    forSale: games.filter((game) => !game.sold && !game.keeping).length,
+    kept: games.filter((game) => !game.sold && game.keeping).length,
+    priced: chosen.length,
+    sentence: "",
+    asks,
+  };
+  outlook.sentence = outlookSentence(outlook);
+  return outlook;
+}
+
+export function withKeeping(games: readonly CashGame[], date: string, keeping: boolean): CashGame[] {
+  return games.map((game) => (game.date === date && !game.sold ? { ...game, keeping } : game));
+}
+
+export function keepingSentence(current: SeasonOutlook, flipped: SeasonOutlook, keepingNow: boolean): string {
+  const fromCash = dollars(current.expectedTotal);
+  const toCash = dollars(flipped.expectedTotal);
+  const fromChance = Math.round(current.chance * 100);
+  const toChance = Math.round(flipped.chance * 100);
+  if (keepingNow) {
+    return `These seats are marked Sit, so they stay out of the cash plan. Marking this game Sell would move expected season cash from ${fromCash} to ${toCash}, and the chance of clearing the goal from ${fromChance}% to ${toChance}%. Nothing is listed for you.`;
+  }
+  return `Marking this game Sit would move expected season cash from ${fromCash} to ${toCash}, and the chance of clearing the goal from ${fromChance}% to ${toChance}%. Nothing is listed for you.`;
+}
+
+/** Chance the independent sale outcomes reach `target` after `banked` is counted. */
+export function clearChance(banked: number, target: number, outcomes: readonly { p: number; cash: number }[]): number {
+  const gap = Math.max(0, Math.ceil(target - Math.max(0, banked)));
+  if (gap === 0) return 1;
+  if (outcomes.length === 0) return 0;
+  const capped = Math.min(gap, 20000);
+  let prob = new Float64Array(capped + 1);
+  prob[capped] = 1;
+  for (const outcome of outcomes) {
+    const next = new Float64Array(capped + 1);
+    const cash = Math.max(0, Math.round(outcome.cash));
+    const p = Math.min(1, Math.max(0, outcome.p));
+    for (let remaining = 0; remaining <= capped; remaining += 1) {
+      const weight = prob[remaining] ?? 0;
+      if (weight === 0) continue;
+      const afterSale = Math.max(0, remaining - cash);
+      next[afterSale] = (next[afterSale] ?? 0) + weight * p;
+      next[remaining] = (next[remaining] ?? 0) + weight * (1 - p);
+    }
+    prob = next;
+  }
+  return Math.min(1, Math.max(0, prob[0] ?? 0));
+}
+
+/**
+ * A comparable pair that disappears between checks, more than a few days
+ * before tip, is a possible sale. The same seats coming back at nearly the
+ * same price are a price edit. Near-tip disappearances are left out.
+ */
+export function detectLikelySales(snaps: readonly CompSnap[]): ProbableSale[] {
+  const byGame = new Map<string, CompSnap[]>();
+  for (const snap of snaps) {
+    if (snap.quantity < PAIR_SEATS) continue;
+    if (!Number.isFinite(snap.price) || snap.price <= 0) continue;
+    if (!Number.isFinite(snap.daysOut)) continue;
+    const list = byGame.get(snap.gameDate) ?? [];
+    list.push(snap);
+    byGame.set(snap.gameDate, list);
   }
 
-  let bestAsk = Math.max(1, Math.round(fair));
-  let bestChance = 0;
-  let bestNet = attend;
-  for (let step = 0; step <= 10; step += 1) {
-    const ratio = 0.8 + step * 0.05;
-    const ask = Math.max(1, Math.round(fair * ratio));
-    const chance = saleProbability({
-      ask,
-      predictedMedian: fair,
-      daysOut: args.daysOut,
-      supply: args.supply,
-    });
-    const net = chance * ask * PAIR_SEATS * SELLER_KEEP_RATE + (1 - chance) * attend;
-    if (net > bestNet + 1e-9 || (Math.abs(net - bestNet) <= 1e-9 && ask < bestAsk)) {
-      bestNet = net;
-      bestAsk = ask;
-      bestChance = chance;
+  const found: ProbableSale[] = [];
+  for (const [gameDate, rows] of byGame) {
+    const pulls = new Map<string, CompSnap[]>();
+    for (const row of rows) {
+      const id = `${row.etDate}|${row.pulledAt}`;
+      const list = pulls.get(id) ?? [];
+      list.push(row);
+      pulls.set(id, list);
+    }
+    const ordered = [...pulls.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const earlier = ordered[index]?.[1] ?? [];
+      const later = ordered[index + 1]?.[1] ?? [];
+      const laterDays = later[0]?.daysOut ?? 0;
+      if (laterDays <= LIKELY_SOLD_MIN_DAYS) continue;
+      const laterCounts = countSnapKeys(later);
+      const future = ordered.slice(index + 1).flatMap((entry) => entry[1]);
+      for (const [key, count] of countSnapKeys(earlier)) {
+        const gone = count - (laterCounts.get(key) ?? 0);
+        if (gone <= 0) continue;
+        const sample = earlier.find((snap) => snapKey(snap) === key);
+        if (!sample || sameSeatsReturn(sample, future)) continue;
+        const goneDate = later[0]?.etDate ?? sample.etDate;
+        for (let copy = 0; copy < gone; copy += 1) {
+          found.push({
+            gameDate,
+            seenDate: sample.etDate,
+            goneDate,
+            daysOut: laterDays,
+            section: sample.section,
+            row: sample.row,
+            quantity: sample.quantity,
+            price: sample.price,
+            certain: false,
+            externalId: `proxy|${gameDate}|${key}|${sample.etDate}|${goneDate}|${copy}`,
+            median: sample.median,
+            supply: sample.supply,
+          });
+        }
+      }
     }
   }
+  return found;
+}
 
-  if (bestNet <= attend + 0.5) {
-    const worth = attend > 0 ? ` if this night is worth ${dollars(attend)} to you` : "";
-    return holdSuggestion(attend, `Keeping the seats looks better than listing them${worth}. Nothing is listed for you.`);
+/** Positives are possible or sure sales. Negatives are pairs still up close to tip. */
+export function saleSamples(snaps: readonly CompSnap[], certain: readonly ProbableSale[] = []): SaleSample[] {
+  const samples: SaleSample[] = [];
+  for (const sale of detectLikelySales(snaps)) {
+    const sample = sampleFromSale(sale, false);
+    if (sample) samples.push(sample);
+  }
+  for (const sale of certain) {
+    if (!sale.certain) continue;
+    const sample = sampleFromSale(sale, true);
+    if (sample) samples.push(sample);
   }
 
-  const chancePct = Math.round(bestChance * 100);
+  const byGame = new Map<string, CompSnap[]>();
+  for (const snap of snaps) {
+    if (snap.quantity < PAIR_SEATS || snap.price <= 0) continue;
+    const list = byGame.get(snap.gameDate) ?? [];
+    list.push(snap);
+    byGame.set(snap.gameDate, list);
+  }
+  for (const rows of byGame.values()) {
+    const pulls = new Map<string, CompSnap[]>();
+    for (const row of rows) {
+      const list = pulls.get(`${row.etDate}|${row.pulledAt}`) ?? [];
+      list.push(row);
+      pulls.set(`${row.etDate}|${row.pulledAt}`, list);
+    }
+    const ordered = [...pulls.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const seen = new Set<string>();
+    for (let index = 0; index < ordered.length; index += 1) {
+      const current = ordered[index]?.[1] ?? [];
+      const daysOut = current[0]?.daysOut ?? 99;
+      if (daysOut < 0 || daysOut > LIKELY_SOLD_MIN_DAYS) continue;
+      const earlier = ordered.slice(0, index).flatMap((entry) => entry[1]);
+      for (const snap of current) {
+        if (snap.median == null || snap.median <= 0) continue;
+        if (!earlier.some((past) => sameSeats(snap, past))) continue;
+        const id = `${snap.gameDate}|${snap.section}|${snap.row}|${snap.quantity}|${Math.round(snap.price * 100)}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        samples.push({
+          sold: false,
+          certain: false,
+          ask: snap.price,
+          predictedMedian: snap.median,
+          daysOut: snap.daysOut,
+          supply: snap.supply ?? 0,
+        });
+      }
+    }
+  }
+  return samples;
+}
+
+export function calibrateSaleCurve(samples: readonly SaleSample[], priors: SaleCurve = SALE_PRIORS): SaleCurve {
+  const rows = samples.filter(
+    (sample) =>
+      sample.ask > 0 &&
+      sample.predictedMedian > 0 &&
+      Number.isFinite(sample.daysOut) &&
+      Number.isFinite(sample.supply),
+  );
+  const positives = rows.filter((sample) => sample.sold).length;
+  if (rows.length < CALIBRATE_MIN_ROWS || positives < CALIBRATE_MIN_CLASS || rows.length - positives < CALIBRATE_MIN_CLASS) {
+    return { ...priors };
+  }
+
+  const features = rows.map((sample) => saleFeatures(sample));
+  const outcomes = rows.map((sample) => (sample.sold ? 1 : 0));
+  const baseWeight = rows.map((sample) => (sample.certain ? 2 : 1));
+  let beta = [priors.intercept, priors.logRatio, priors.logDays, priors.logSupply];
+  for (let iter = 0; iter < 12; iter += 1) {
+    const target: number[] = [];
+    const weight: number[] = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const eta = Math.min(12, Math.max(-12, dot(features[index] ?? [], beta)));
+      const chance = 1 / (1 + Math.exp(-eta));
+      const variance = Math.max(1e-4, chance * (1 - chance));
+      target.push(eta + ((outcomes[index] ?? 0) - chance) / variance);
+      weight.push((baseWeight[index] ?? 1) * variance);
+    }
+    const solved = weightedSolve(features, target, weight);
+    if (!solved) return { ...priors };
+    beta = solved;
+  }
+  if (beta.some((value) => !Number.isFinite(value))) return { ...priors };
+
+  const weightSum = baseWeight.reduce((sum, value) => sum + value, 0);
+  const prior = [priors.intercept, priors.logRatio, priors.logDays, priors.logSupply];
+  const shrunk = beta.map((value, index) => (weightSum * value + PRIOR_STRENGTH * (prior[index] ?? 0)) / (weightSum + PRIOR_STRENGTH));
   return {
-    ask: bestAsk,
-    hold: false,
-    saleChance: Math.round(bestChance * 1000) / 1000,
-    expectedKeep: Math.round(bestNet * 100) / 100,
-    attendValue: attend,
-    sentence: `Suggested ask: ${dollars(bestAsk)} a seat. The rough chance of a sale before tip is ${chancePct}%. This is only a suggestion. Nothing is listed for you.`,
+    intercept: shrunk[0] ?? priors.intercept,
+    logRatio: shrunk[1] ?? priors.logRatio,
+    logDays: shrunk[2] ?? priors.logDays,
+    logSupply: shrunk[3] ?? priors.logSupply,
   };
 }
 
@@ -792,23 +1178,110 @@ function notEnough(sentence = NOT_ENOUGH_DATA): PriceProjection {
   };
 }
 
-function holdSuggestion(attend: number, sentence: string): ListSuggestion {
+function holdSuggestion(sentence: string): ListSuggestion {
   return {
     ask: null,
     hold: true,
     saleChance: null,
     expectedKeep: null,
-    attendValue: attend,
     sentence,
   };
 }
 
-function dollars(value: number): string {
-  return `$${Math.round(value).toLocaleString("en-US")}`;
+function tiltOffer(offers: readonly AskOffer[], ev: AskOffer, lean: SeasonLean): AskOffer {
+  if (lean === "safer") {
+    const pool = offers.filter((offer) => offer.chance + 1e-9 >= ev.chance && offer.expected + 1e-6 >= ev.expected * SAFER_KEEP);
+    return pool.reduce<AskOffer | null>((best, offer) => {
+      if (!best || offer.chance > best.chance + 1e-9 || (Math.abs(offer.chance - best.chance) <= 1e-9 && offer.ask < best.ask)) {
+        return offer;
+      }
+      return best;
+    }, null) ?? ev;
+  }
+  if (lean === "patient") {
+    const pool = offers.filter((offer) => offer.ask + 1e-9 >= ev.ask && offer.expected + 1e-6 >= ev.expected * PATIENT_KEEP);
+    return pool.reduce<AskOffer | null>((best, offer) => (best == null || offer.ask > best.ask ? offer : best), null) ?? ev;
+  }
+  return ev;
 }
 
-function finiteOr(value: number | null | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+function outlookSentence(outlook: SeasonOutlook): string {
+  const goal = `${dollars(outlook.breakEven)} plus ${Math.round(outlook.cushion * 100)}%, so ${dollars(outlook.target)} after fees`;
+  const unpriced = Math.max(0, outlook.forSale - outlook.priced);
+  const missing = unpriced > 0 ? ` ${unpriced} for-sale games have no price yet, so they are not in this total.` : "";
+  const lean =
+    outlook.lean === "safer"
+      ? "The chance of clearing the goal is low, so suggestions lean toward prices more likely to sell."
+      : outlook.lean === "patient"
+        ? "The chance of clearing the goal is high, so suggestions can hold out for more."
+        : "Suggestions follow the ask with the most expected cash.";
+  return `Season goal is ${goal}. ${dollars(outlook.banked)} is already in from sold games. ${outlook.priced} for-sale games have a price to plan from and are expected to bring about ${dollars(outlook.expectedRest)}, about ${dollars(outlook.expectedTotal)} in all.${missing} The chance of clearing ${dollars(outlook.target)} is about ${Math.round(outlook.chance * 100)}%. ${lean} Nothing is listed for you.`;
+}
+
+function sampleFromSale(sale: ProbableSale, certain: boolean): SaleSample | null {
+  if (sale.median == null || sale.median <= 0 || sale.price <= 0) return null;
+  return {
+    sold: true,
+    certain,
+    ask: sale.price,
+    predictedMedian: sale.median,
+    daysOut: sale.daysOut,
+    supply: sale.supply ?? 0,
+  };
+}
+
+function saleFeatures(sample: SaleSample): number[] {
+  const ratio = Math.min(3, Math.max(0.25, sample.ask / sample.predictedMedian));
+  return [1, Math.log(ratio), Math.log(1 + Math.max(0, sample.daysOut)), Math.log(1 + Math.max(0, sample.supply))];
+}
+
+function weightedSolve(features: readonly (readonly number[])[], target: readonly number[], weight: readonly number[]): number[] | null {
+  const width = 4;
+  const normal = Array.from({ length: width }, () => Array(width).fill(0));
+  const right = Array(width).fill(0);
+  for (let row = 0; row < features.length; row += 1) {
+    const x = features[row] ?? [];
+    const w = weight[row] ?? 0;
+    for (let col = 0; col < width; col += 1) {
+      right[col] += w * (x[col] ?? 0) * (target[row] ?? 0);
+      for (let other = 0; other < width; other += 1) {
+        normal[col][other] += w * (x[col] ?? 0) * (x[other] ?? 0);
+      }
+    }
+  }
+  for (let col = 0; col < width; col += 1) normal[col][col] += 1e-6;
+  return solveLinear(normal, right);
+}
+
+function snapKey(snap: CompSnap): string {
+  return `${snap.section}|${snap.row}|${snap.quantity}|${Math.round(snap.price * 100)}`;
+}
+
+function countSnapKeys(snaps: readonly CompSnap[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const snap of snaps) {
+    const key = snapKey(snap);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function sameSeats(left: CompSnap, right: CompSnap): boolean {
+  if (left.section !== right.section || left.row !== right.row || left.quantity !== right.quantity) return false;
+  if (left.price <= 0) return false;
+  return Math.abs(right.price - left.price) / left.price <= PRICE_EDIT_BAND;
+}
+
+function sameSeatsReturn(sample: CompSnap, future: readonly CompSnap[]): boolean {
+  return future.some((snap) => sameSeats(sample, snap));
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function dollars(value: number): string {
+  return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
 function quantile(sorted: readonly number[], p: number): number {

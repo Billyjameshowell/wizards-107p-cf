@@ -1,19 +1,28 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  askOffers,
+  calibrateSaleCurve,
   daysOutBasis,
-  DEFAULT_ATTEND_VALUE,
+  detectLikelySales,
   fitMarketModel,
   holdoutMedianAbsPercent,
+  keepingSentence,
+  LIKELY_SOLD_MIN_DAYS,
   MIN_SNAPSHOTS,
   modelExplainer,
   NOT_ENOUGH_DATA,
+  planSeason,
   projectGame,
+  SALE_PRIORS,
   saleProbability,
   storedModelFit,
   suggestListPrice,
   TRUST_OBSERVED_GAMES,
   TRUST_ROWS,
+  withKeeping,
+  type AskOffer,
+  type CompSnap,
   type GameQuery,
   type MarketRow,
   type OpponentTier,
@@ -122,7 +131,24 @@ function query(partial: Partial<GameQuery> & Pick<GameQuery, "gameDate" | "daysO
     supply: 6,
     snapshots: 8,
     liveMedian: 180,
-    attendValue: 0,
+    ...partial,
+  };
+}
+
+function offer(ask: number, chance: number): AskOffer {
+  const pair = Math.round(ask * 2 * 0.95 * 100) / 100;
+  return { ask, chance, pair, expected: Math.round(chance * pair * 100) / 100 };
+}
+
+function snap(partial: Partial<CompSnap> & Pick<CompSnap, "etDate" | "daysOut" | "price">): CompSnap {
+  return {
+    gameDate: "2026-12-01",
+    pulledAt: `${partial.etDate}T16:00:00.000Z`,
+    section: "107",
+    row: "P",
+    quantity: 2,
+    supply: 4,
+    median: 190,
     ...partial,
   };
 }
@@ -259,30 +285,123 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(atFair).toBeGreaterThan(0.05);
     expect(atFair).toBeLessThan(0.6);
 
-    const suggestion = suggestListPrice({ predictedMedian: fair, daysOut: 14, supply: 6, attendValue: DEFAULT_ATTEND_VALUE });
+    const suggestion = suggestListPrice({ predictedMedian: fair, daysOut: 14, supply: 6 });
     expect(suggestion.hold).toBe(false);
     expect(suggestion.ask).not.toBeNull();
     expect(suggestion.sentence).toMatch(/Nothing is listed for you/);
     expect(suggestion).not.toHaveProperty("listed");
+    expect(suggestion).not.toHaveProperty("attendValue");
 
-    const chosen = suggestion.ask ?? 0;
-    const chosenNet =
-      saleProbability({ ask: chosen, predictedMedian: fair, daysOut: 14, supply: 6 }) * chosen * 2 * 0.95;
-    const worseAsk = Math.round(fair * 1.3);
-    const worseNet =
-      saleProbability({ ask: worseAsk, predictedMedian: fair, daysOut: 14, supply: 6 }) * worseAsk * 2 * 0.95;
-    expect(chosenNet).toBeGreaterThanOrEqual(worseNet - 0.01);
+    const offers = askOffers({ predictedMedian: fair, daysOut: 14, supply: 6 });
+    const chosen = offers.find((row) => row.ask === suggestion.ask);
+    expect(chosen).toBeTruthy();
+    for (const row of offers) {
+      expect(chosen?.expected ?? 0).toBeGreaterThanOrEqual(row.expected - 0.01);
+    }
+  });
 
-    const stay = suggestListPrice({ predictedMedian: fair, daysOut: 14, supply: 6, attendValue: 10_000 });
-    expect(stay.hold).toBe(true);
-    expect(stay.ask).toBeNull();
-    expect(stay.sentence).toMatch(/Nothing is listed for you/);
+  it("leans toward a safer ask when the season goal is out of reach, and holds out when cash is already in", () => {
+    const offers = [offer(100, 0.2), offer(80, 0.5), offer(70, 0.75), offer(60, 0.9), offer(50, 0.98)];
+    const game = { date: "2026-12-01", opponent: "Knicks", keeping: false, sold: false, banked: 0, offers };
+    const poor = planSeason([game], { breakEven: 6000, cushion: 0.15 });
+    const rich = planSeason(
+      [{ date: "2026-11-01", opponent: "Sold", keeping: false, sold: true, banked: 20000, offers: [] }, game],
+      { breakEven: 6000, cushion: 0.15 },
+    );
+    expect(poor.lean).toBe("safer");
+    expect(rich.lean).toBe("patient");
+    expect(poor.target).toBe(6900);
+    expect(poor.asks["2026-12-01"]?.ask).toBeLessThan(rich.asks["2026-12-01"]?.ask ?? 0);
+    expect(poor.asks["2026-12-01"]?.chance).toBeGreaterThan(rich.asks["2026-12-01"]?.chance ?? 1);
+    expect(poor.sentence).toMatch(/Nothing is listed for you/);
+    expect(rich.banked).toBe(20000);
+    expect(rich.chance).toBe(1);
+  });
+
+  it("shows that marking a game Sit lowers expected cash and the chance of the goal", () => {
+    const offers = [offer(80, 0.9)];
+    const games = [
+      { date: "2026-12-01", opponent: "Knicks", keeping: false, sold: false, banked: 0, offers },
+      { date: "2026-12-08", opponent: "Nets", keeping: false, sold: false, banked: 0, offers },
+    ];
+    const both = planSeason(games, { breakEven: 100, cushion: 0 });
+    const kept = planSeason(withKeeping(games, "2026-12-01", true), { breakEven: 100, cushion: 0 });
+    expect(kept.expectedTotal).toBeLessThan(both.expectedTotal);
+    expect(kept.chance).toBeLessThan(both.chance);
+    expect(kept.kept).toBe(1);
+    const note = keepingSentence(both, kept, false);
+    expect(note).toMatch(/Marking this game Sit/);
+    expect(note).toMatch(/Nothing is listed for you/);
+  });
+
+  it("treats a pair that vanishes well before tip as a possible sale, and ignores edits and singles", () => {
+    const sold = detectLikelySales([
+      snap({ etDate: "2026-10-01", daysOut: 61, price: 200 }),
+      snap({ etDate: "2026-10-08", daysOut: 54, price: 260 }),
+    ]);
+    expect(sold).toHaveLength(1);
+    expect(sold[0]?.certain).toBe(false);
+    expect(sold[0]?.daysOut).toBeGreaterThan(LIKELY_SOLD_MIN_DAYS);
+
+    const edited = detectLikelySales([
+      snap({ etDate: "2026-10-01", daysOut: 61, price: 200 }),
+      snap({ etDate: "2026-10-08", daysOut: 54, price: 210 }),
+    ]);
+    expect(edited).toHaveLength(0);
+
+    const nearTip = detectLikelySales([
+      snap({ etDate: "2026-11-27", daysOut: 4, price: 200 }),
+      snap({ etDate: "2026-11-29", daysOut: 2, price: 260 }),
+    ]);
+    expect(nearTip).toHaveLength(0);
+
+    const single = detectLikelySales([
+      snap({ etDate: "2026-10-01", daysOut: 61, price: 40, quantity: 1 }),
+      snap({ etDate: "2026-10-08", daysOut: 54, price: 260 }),
+    ]);
+    expect(single).toHaveLength(0);
+  });
+
+  it("keeps the hand-set sale curve until both outcomes are thick, then lets sales move it", () => {
+    const thin = calibrateSaleCurve([
+      { sold: true, certain: false, ask: 100, predictedMedian: 100, daysOut: 10, supply: 4 },
+    ]);
+    expect(thin).toEqual(SALE_PRIORS);
+
+    const samples = [
+      ...Array.from({ length: 40 }, () => ({
+        sold: true,
+        certain: false,
+        ask: 100,
+        predictedMedian: 100,
+        daysOut: 14,
+        supply: 6,
+      })),
+      ...Array.from({ length: 40 }, () => ({
+        sold: false,
+        certain: false,
+        ask: 180,
+        predictedMedian: 100,
+        daysOut: 14,
+        supply: 6,
+      })),
+    ];
+    const curve = calibrateSaleCurve(samples);
+    expect(curve.intercept).not.toBe(SALE_PRIORS.intercept);
+    const fair = saleProbability({ ask: 100, predictedMedian: 100, daysOut: 14, supply: 6, curve });
+    const rich = saleProbability({ ask: 180, predictedMedian: 100, daysOut: 14, supply: 6, curve });
+    expect(fair).toBeGreaterThan(rich);
   });
 
   it("explains the model without technical jargon", () => {
     const note = modelExplainer();
     expect(note).toMatch(/early estimate/i);
     expect(note).toMatch(/five checks/);
+    expect(note).toMatch(/at least two/);
+    expect(note).toMatch(/Single seats are left out/);
+    expect(note).toMatch(/\$6,000/);
+    expect(note).toMatch(/15%/);
+    expect(note).toMatch(/possible sale/i);
     expect(note).toMatch(/Nothing is listed for you/);
     expect(note).not.toMatch(/regression|spline|logit|logistic|bayes|hierarchical|coefficient|prior|empirical/i);
   });
@@ -296,5 +415,16 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(store).not.toMatch(/UPDATE price_model_fits|DELETE FROM price_model_fits/i);
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS price_model_fits");
     expect(migration).not.toMatch(/UPDATE |DELETE /i);
+
+    const salesMigration = readFileSync(new URL("../migrations/0005_likely_sales.sql", import.meta.url), "utf8");
+    const salesStore = readFileSync(new URL("../worker/likely-sales.ts", import.meta.url), "utf8");
+    const schema = readFileSync(new URL("../src/shared/archive-schema.ts", import.meta.url), "utf8");
+    expect(salesMigration).toContain("CREATE TABLE IF NOT EXISTS likely_sales");
+    expect(salesMigration).not.toMatch(/UPDATE |DELETE /i);
+    expect(salesStore).toContain("INSERT INTO likely_sales");
+    expect(salesStore).toContain("ON CONFLICT(external_id) DO NOTHING");
+    expect(salesStore).not.toMatch(/UPDATE likely_sales|DELETE FROM likely_sales/i);
+    expect(schema).toContain("LIKELY_SALES_DDL");
+    expect(schema).not.toMatch(/UPDATE likely_sales|DELETE FROM likely_sales/i);
   });
 });

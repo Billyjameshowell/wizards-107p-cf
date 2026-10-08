@@ -124,6 +124,7 @@ describe("production wrangler vars", () => {
     expect(config).not.toContain('"DRY_RUN": "true"');
     expect(config).toContain('"SEATDATA_MAX_PULLS_PER_RUN": "20"');
     expect(config).toContain('"SEATDATA_MAX_PULLS_PER_ET_DAY": "25"');
+    expect(config).not.toContain("SEATDATA_FETCH_SALES");
     expect(config).toContain('"APIFY_MAX_TOTAL_CHARGE_USD": "0.50"');
     expect(config).toContain('"APIFY_MAX_EVENTS": "50"');
     expect(config).toContain('"APIFY_INCLUDE_LISTINGS": "false"');

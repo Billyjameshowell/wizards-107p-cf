@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import type { TrendsGame, TrendsReport } from "@shared/trends";
+import { cashGamesFor, type TrendsGame, type TrendsReport } from "@shared/trends";
+import {
+  keepingSentence,
+  planSeason,
+  soldSuggestion,
+  suggestionFromOffer,
+  withKeeping,
+  type ListSuggestion,
+  type SeasonOutlook,
+} from "@shared/price-model";
 import { formatGameDate, formatMoney, formatYear } from "@shared/format";
 import { formatDaysOut } from "@shared/pricing";
+import { readScenario, writeScenario, type ScenarioChoice, type ScenarioMap } from "@/lib/scenario";
 import { DaysOutChart, PriceTrendChart, Sparkline } from "@/components/TrendChart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -123,6 +133,118 @@ function GameSentence({ game }: { game: TrendsGame }) {
   return <p className="text-sm leading-snug text-[#3d4654]">{game.projection.sentence}</p>;
 }
 
+function choiceOf(game: TrendsGame, scenario: ScenarioMap): string {
+  const override = scenario[game.date];
+  if (override === "Sit" || override === "Sell") return override;
+  return game.sitOrSell || "TBD";
+}
+
+function useScenario(): { scenario: ScenarioMap; choose: (game: TrendsGame, choice: ScenarioChoice) => void } {
+  const [scenario, setScenario] = useState<ScenarioMap>(() => readScenario());
+  function choose(game: TrendsGame, choice: ScenarioChoice) {
+    const next = { ...scenario };
+    if ((game.sitOrSell || "TBD") === choice) delete next[game.date];
+    else next[game.date] = choice;
+    writeScenario(next);
+    setScenario(next);
+  }
+  return { scenario, choose };
+}
+
+function planFor(report: TrendsReport, scenario: ScenarioMap): SeasonOutlook {
+  return planSeason(cashGamesFor(report.games, (game) => choiceOf(game, scenario) === "Sit"), {
+    breakEven: report.outlook.breakEven,
+    cushion: report.outlook.cushion,
+  });
+}
+
+function suggestionFor(game: TrendsGame, outlook: SeasonOutlook): ListSuggestion | null {
+  if (game.sold) return soldSuggestion(game.banked);
+  const chosen = outlook.asks[game.date];
+  if (!chosen) return null;
+  return suggestionFromOffer(chosen, outlook.lean);
+}
+
+function keepingNote(report: TrendsReport, game: TrendsGame, scenario: ScenarioMap, outlook: SeasonOutlook): string | null {
+  if (game.sold || (game.daysOut != null && game.daysOut < 0)) return null;
+  const keeping = choiceOf(game, scenario) === "Sit";
+  const cash = cashGamesFor(report.games, (item) => choiceOf(item, scenario) === "Sit");
+  const flipped = planSeason(withKeeping(cash, game.date, !keeping), {
+    breakEven: outlook.breakEven,
+    cushion: outlook.cushion,
+  });
+  return keepingSentence(outlook, flipped, keeping);
+}
+
+function SitSellToggle({
+  value,
+  opponent,
+  onChange,
+}: {
+  value: string;
+  opponent: string;
+  onChange: (choice: ScenarioChoice) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={`Sit or sell for ${opponent}`}
+      className="grid w-full max-w-[11.5rem] grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#d5cfc3]"
+    >
+      {(["Sit", "Sell"] as const).map((choice) => {
+        const selected = value === choice;
+        return (
+          <button
+            key={choice}
+            type="button"
+            aria-pressed={selected}
+            className={cn(
+              "min-h-11 rounded-lg px-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy/40",
+              selected && choice === "Sit" && "bg-sit-ink text-white",
+              selected && choice === "Sell" && "bg-sell-ink text-white",
+              !selected && "text-[#243044] hover:bg-[#f4f1ea]",
+            )}
+            onClick={() => onChange(choice)}
+          >
+            {choice}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CashPlan({ outlook }: { outlook: SeasonOutlook }) {
+  return (
+    <section aria-labelledby="cash-plan-heading" className="mt-4 rounded-2xl border border-line bg-card px-4 py-4">
+      <h2 id="cash-plan-heading" className="text-base font-semibold text-navy">
+        Season cash
+      </h2>
+      <p className="mt-1 text-sm leading-relaxed text-[#3d4654]">{outlook.sentence}</p>
+      <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Already in</dt>
+          <dd className="text-lg font-semibold tabular-nums text-navy">{formatMoney(outlook.banked)}</dd>
+        </div>
+        <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Expected from the rest</dt>
+          <dd className="text-lg font-semibold tabular-nums text-navy">{formatMoney(outlook.expectedRest)}</dd>
+        </div>
+        <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            Chance of clearing {formatMoney(outlook.target)}
+          </dt>
+          <dd className="text-lg font-semibold tabular-nums text-navy">{Math.round(outlook.chance * 100)}%</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        {outlook.kept} marked Sit, {outlook.forSale} still for sale, {outlook.priced} with a price in this total. Sit
+        leaves a game out of the plan. Sell puts it back. Nothing is listed.
+      </p>
+    </section>
+  );
+}
+
 function SortableHead({
   label,
   column,
@@ -159,10 +281,16 @@ function SeasonTable({
   games,
   sort,
   onSort,
+  scenario,
+  outlook,
+  onChoose,
 }: {
   games: TrendsGame[];
   sort: { key: SortKey; direction: SortDirection };
   onSort: (key: SortKey) => void;
+  scenario: ScenarioMap;
+  outlook: SeasonOutlook;
+  onChoose: (game: TrendsGame, choice: ScenarioChoice) => void;
 }) {
   return (
     <Card className="hidden min-w-0 overflow-hidden border-line py-0 shadow-[0_10px_30px_rgba(11,31,58,0.12)] lg:flex">
@@ -191,7 +319,13 @@ function SeasonTable({
                   </span>
                   <div className="mt-1.5 max-w-sm">
                     <GameSentence game={game} />
+                    <AskLine game={game} outlook={outlook} scenario={scenario} />
                   </div>
+                  {game.sold ? null : (
+                    <div className="mt-2">
+                      <SitSellToggle value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => onChoose(game, choice)} />
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Sparkline
@@ -231,7 +365,32 @@ function SeasonTable({
   );
 }
 
-function SeasonCards({ games }: { games: TrendsGame[] }) {
+function AskLine({ game, outlook, scenario }: { game: TrendsGame; outlook: SeasonOutlook; scenario: ScenarioMap }) {
+  if (game.sold) return <p className="mt-1 text-xs font-medium text-muted-foreground">Sold</p>;
+  if (choiceOf(game, scenario) === "Sit") {
+    return <p className="mt-1 text-xs font-medium text-muted-foreground">Sit · left out of the cash plan</p>;
+  }
+  const suggestion = suggestionFor(game, outlook);
+  if (!suggestion?.ask) return null;
+  return (
+    <p className="mt-1 text-xs font-medium text-navy">
+      Suggested ask {formatMoney(suggestion.ask)}
+      {suggestion.saleChance != null ? ` · ${Math.round(suggestion.saleChance * 100)}% chance` : ""}
+    </p>
+  );
+}
+
+function SeasonCards({
+  games,
+  scenario,
+  outlook,
+  onChoose,
+}: {
+  games: TrendsGame[];
+  scenario: ScenarioMap;
+  outlook: SeasonOutlook;
+  onChoose: (game: TrendsGame, choice: ScenarioChoice) => void;
+}) {
   return (
     <div className="space-y-3 lg:hidden">
       {games.map((game) => (
@@ -255,7 +414,13 @@ function SeasonCards({ games }: { games: TrendsGame[] }) {
           </div>
           <div className="mt-2">
             <GameSentence game={game} />
+            <AskLine game={game} outlook={outlook} scenario={scenario} />
           </div>
+          {game.sold ? null : (
+            <div className="mt-2">
+              <SitSellToggle value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => onChoose(game, choice)} />
+            </div>
+          )}
           <dl className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Median</dt>
@@ -296,6 +461,8 @@ function SeasonCards({ games }: { games: TrendsGame[] }) {
 }
 
 function SeasonView({ report }: { report: TrendsReport }) {
+  const { scenario, choose } = useScenario();
+  const outlook = useMemo(() => planFor(report, scenario), [report, scenario]);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: "date", direction: "asc" });
   const [filter, setFilter] = useState<HistoryFilter>("history");
   const visible = useMemo(() => {
@@ -355,6 +522,8 @@ function SeasonView({ report }: { report: TrendsReport }) {
           <span className="text-muted-foreground"> · green is up, red is down</span>
         </p>
       </section>
+
+      <CashPlan outlook={outlook} />
 
       <section aria-labelledby="days-out-heading" className="mt-4 rounded-2xl border border-line bg-card px-3 py-3 sm:px-4">
         <h2 id="days-out-heading" className="text-base font-semibold text-navy">
@@ -421,8 +590,8 @@ function SeasonView({ report }: { report: TrendsReport }) {
         </p>
       ) : (
         <>
-          <SeasonCards games={visible} />
-          <SeasonTable games={visible} sort={sort} onSort={chooseSort} />
+          <SeasonCards games={visible} scenario={scenario} outlook={outlook} onChoose={choose} />
+          <SeasonTable games={visible} sort={sort} onSort={chooseSort} scenario={scenario} outlook={outlook} onChoose={choose} />
         </>
       )}
 
@@ -430,9 +599,10 @@ function SeasonView({ report }: { report: TrendsReport }) {
         <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-navy">How to read this</summary>
         <div className="mt-3 space-y-2">
           <p>
-            Similar seats are {bandPhrase(report.band)}, at least two together. The median is the middle of those
-            prices. The cheapest line is the lowest of those same seats. Your ask is the number to type today. You keep
-            95% of it, and both seats pay twice that.
+            Similar seats are {bandPhrase(report.band)}, at least two together. Single seats are left out, because a
+            buyer of this pair compares pairs and larger groups. The median is the middle of those prices. The cheapest
+            line is the lowest of those same seats. Your ask is the number to type today. You keep 95% of it, and both
+            seats pay twice that. Sit leaves a game out of the season cash plan. Sell puts it back. Nothing is listed.
           </p>
           <p>
             7-day change compares the latest median with the one from about a week earlier. Since first check compares
@@ -450,6 +620,10 @@ function SeasonView({ report }: { report: TrendsReport }) {
 }
 
 function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) {
+  const { scenario, choose } = useScenario();
+  const outlook = useMemo(() => planFor(report, scenario), [report, scenario]);
+  const suggestion = suggestionFor(game, outlook);
+  const note = keepingNote(report, game, scenario, outlook);
   const checksLabel = game.checks === 1 ? "1 price check" : `${game.checks} price checks`;
   const span =
     game.series.length > 0
@@ -484,9 +658,13 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Early estimate</p>
         ) : null}
         <p className="text-lg font-medium leading-snug text-navy">{game.projection.sentence}</p>
-        {game.projection.suggestion ? (
-          <p className="mt-2 text-sm text-[#3d4654]">{game.projection.suggestion.sentence}</p>
-        ) : null}
+        {suggestion ? <p className="mt-2 text-sm text-[#3d4654]">{suggestion.sentence}</p> : null}
+        {note ? <p className="mt-2 text-sm text-[#3d4654]">{note}</p> : null}
+        {game.sold ? null : (
+          <div className="mt-3">
+            <SitSellToggle value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => choose(game, choice)} />
+          </div>
+        )}
       </section>
 
       <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -497,11 +675,11 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
         <Stat
           label="Suggested ask"
           value={
-            game.projection.suggestion?.hold
-              ? "Hold"
-              : formatMoney(game.projection.suggestion?.ask ?? null)
+            game.sold ? "Sold" : suggestion?.hold ? (choiceOf(game, scenario) === "Sit" ? "Sit" : "—") : formatMoney(suggestion?.ask ?? null)
           }
         />
+        <Stat label="Expected season cash" value={formatMoney(outlook.expectedTotal)} />
+        <Stat label="Chance of the goal" value={`${Math.round(outlook.chance * 100)}%`} />
         <Stat label="You keep" value={formatMoney(game.keep)} />
         <Stat label="Both seats" value={formatMoney(game.pair)} />
         <Stat label="7-day" value={formatSignedPercent(game.change7d)} tone={percentClass(game.change7d)} />

@@ -12,7 +12,9 @@ import {
   storedModelFit,
   type StoredModelFit,
 } from "../src/shared/price-model";
+import { proxySales } from "../src/shared/trends";
 import { ensureArchive } from "./archive-store";
+import { insertProbableSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
 import { loadTrendListings, loadTrendPulls, toSeed } from "./trends";
 
@@ -26,6 +28,13 @@ export async function refitPriceModel(env: Env, trigger: string, now = new Date(
     await insertModelFit(env, trigger, now);
   } catch (error) {
     console.error("price model fit", error);
+  }
+  try {
+    await ensureArchive(env);
+    const [pulls, listings] = await Promise.all([loadTrendPulls(env), loadTrendListings(env)]);
+    await insertProbableSales(env, proxySales(pulls, listings), now);
+  } catch (error) {
+    console.error("likely sales", error);
   }
 }
 

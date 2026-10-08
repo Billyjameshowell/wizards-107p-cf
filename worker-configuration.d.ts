@@ -15,6 +15,8 @@ interface __BaseEnv_Env {
 	SEATDATA_BASE_URL?: string;
 	SEATDATA_MAX_PULLS_PER_RUN?: string;
 	SEATDATA_MAX_PULLS_PER_ET_DAY?: string;
+	SEATDATA_FETCH_SALES?: string;
+	SEASON_CUSHION?: string;
 	APIFY_MAX_TOTAL_CHARGE_USD?: string;
 	APIFY_MAX_EVENTS?: string;
 }

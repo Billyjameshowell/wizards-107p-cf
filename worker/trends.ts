@@ -1,4 +1,5 @@
 import type { Game } from "../src/shared/book";
+import { SEASON_CUSHION_DEFAULT } from "../src/shared/price-model";
 import { compMedianOf, demandOf, etYmd } from "../src/shared/pricing";
 import {
   buildTrendsReport,
@@ -7,6 +8,7 @@ import {
   type TrendsGameSeed,
 } from "../src/shared/trends";
 import { ensureArchiveBackfill } from "./archive-store";
+import { loadCertainSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
 
 const PAGE = 400;
@@ -125,14 +127,29 @@ export function toSeed(game: Game): TrendsGameSeed {
     demand: demandOf(game),
     bookMedian: compMedianOf(game),
     notes: game.notes,
+    sitOrSell: game.sit_or_sell,
+    sold: game.sold,
+    listedAsk: game.listed_ask,
   };
+}
+
+function cushionOf(env: Env): number {
+  const raw = env.SEASON_CUSHION?.trim();
+  if (!raw) return SEASON_CUSHION_DEFAULT;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) return SEASON_CUSHION_DEFAULT;
+  return parsed;
 }
 
 export async function trendsResponse(env: Env, now = new Date()): Promise<Response> {
   try {
     await ensureArchiveBackfill(env);
     const book = await loadLiveBook(env);
-    const [pulls, listings] = await Promise.all([loadTrendPulls(env), loadTrendListings(env)]);
+    const [pulls, listings, certainSales] = await Promise.all([
+      loadTrendPulls(env),
+      loadTrendListings(env),
+      loadCertainSales(env),
+    ]);
     const report = buildTrendsReport({
       today: etYmd(now),
       section: book.section,
@@ -141,6 +158,9 @@ export async function trendsResponse(env: Env, now = new Date()): Promise<Respon
       games: book.games.map(toSeed),
       pulls,
       listings,
+      breakEven: book.season_cost,
+      cushion: cushionOf(env),
+      certainSales,
     });
     return Response.json(report, {
       headers: { "Cache-Control": "public, max-age=120" },

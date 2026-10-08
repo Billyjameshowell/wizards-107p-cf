@@ -6,18 +6,35 @@ import {
   normalizeRow,
   pairFromTypeIn,
   roundMoney,
+  SEASON_COST_DEFAULT,
   type CompListing,
 } from "./book";
 import {
+  askOffers,
+  calibrateSaleCurve,
+  detectLikelySales,
   fitMarketModel,
   isNationalTv,
   isWeekendGame,
+  keepingSentence,
   modelExplainer,
   NOT_ENOUGH_DATA,
-  opponentTier,
+  planSeason,
   projectGame,
+  saleSamples,
+  SEASON_CUSHION_DEFAULT,
+  sitSuggestion,
+  soldSuggestion,
+  suggestionFromOffer,
+  withKeeping,
+  opponentTier,
+  type AskOffer,
+  type CashGame,
+  type CompSnap,
   type MarketRow,
   type PriceProjection,
+  type ProbableSale,
+  type SeasonOutlook,
 } from "./price-model";
 import { daysUntil, suggestFromMedian, type Demand } from "./pricing";
 
@@ -72,6 +89,10 @@ export type TrendsGameSeed = {
   nationalTv?: boolean;
   /** Wizards win rate on the morning of the check, when we have one. */
   wizardsWinRate?: number | null;
+  /** Book Sit / Sell / TBD. Missing means not flagged as keeping. */
+  sitOrSell?: string;
+  sold?: boolean;
+  listedAsk?: number | null;
 };
 
 export type TrendPoint = {
@@ -101,6 +122,13 @@ export type TrendsGame = {
   keep: number | null;
   pair: number | null;
   projection: PriceProjection;
+  /** Book choice. Sit means the seats stay out of the cash plan. */
+  sitOrSell: string;
+  sold: boolean;
+  /** Cash already in from a sold pair. */
+  banked: number;
+  /** Candidate asks for the season cash plan. Empty when the game is sold or past. */
+  offers: AskOffer[];
 };
 
 export type DaysOutBucket = {
@@ -125,6 +153,8 @@ export type TrendsReport = {
   /** Plain-language note. No fit internals. */
   modelNote: string;
   early: boolean;
+  /** Cash already in, expected cash still out, and the chance of clearing the goal. */
+  outlook: SeasonOutlook;
 };
 
 type Kind = keyof typeof RANK;
@@ -434,6 +464,9 @@ export function buildTrendsReport(input: {
   section?: string;
   row?: string;
   seats?: number[];
+  breakEven?: number;
+  cushion?: number;
+  certainSales?: readonly ProbableSale[];
 }): TrendsReport {
   return assembleTrends(input).report;
 }
@@ -448,6 +481,33 @@ export function cleanedMarketRows(input: {
   return assembleTrends(input).market;
 }
 
+export function cashGamesFor(
+  games: readonly TrendsGame[],
+  keeping: (game: TrendsGame) => boolean,
+): CashGame[] {
+  return games.map((game) => ({
+    date: game.date,
+    opponent: game.opponent,
+    keeping: keeping(game),
+    sold: game.sold,
+    banked: game.banked,
+    offers: game.offers,
+  }));
+}
+
+/** Vanished comparable pairs. Possible sales, not sure ones. */
+export function proxySales(pulls: readonly TrendPull[], listings: readonly TrendListing[]): ProbableSale[] {
+  return detectLikelySales(compSnaps(pulls, listings));
+}
+
+export function outlookFor(
+  games: readonly TrendsGame[],
+  keeping: (game: TrendsGame) => boolean,
+  options?: { breakEven?: number; cushion?: number },
+): SeasonOutlook {
+  return planSeason(cashGamesFor(games, keeping), options);
+}
+
 function assembleTrends(input: {
   today: string;
   games: readonly TrendsGameSeed[];
@@ -456,6 +516,9 @@ function assembleTrends(input: {
   section?: string;
   row?: string;
   seats?: number[];
+  breakEven?: number;
+  cushion?: number;
+  certainSales?: readonly ProbableSale[];
 }): { report: TrendsReport; market: MarketRow[] } {
   const listingsByPull = new Map<number, CompListing[]>();
   for (const row of input.listings) {
@@ -562,9 +625,15 @@ function assembleTrends(input: {
       keep: ask == null ? null : keepFromTypeIn(ask),
       pair: ask == null ? null : pairFromTypeIn(ask),
       projection: daysOut == null ? emptyProjection() : emptyProjection(NOT_ENOUGH_DATA),
+      sitOrSell: seed.sitOrSell ?? "",
+      sold: seed.sold === true,
+      banked: seed.sold && seed.listedAsk != null && seed.listedAsk > 0 ? pairFromTypeIn(seed.listedAsk) : 0,
+      offers: [],
     });
   }
 
+  const snaps = compSnaps(input.pulls, input.listings);
+  const curve = calibrateSaleCurve(saleSamples(snaps, contextualSales(input.certainSales ?? [], snaps)));
   const fit = fitMarketModel(market, input.today);
   for (const game of games) {
     if (game.daysOut == null) continue;
@@ -580,8 +649,42 @@ function assembleTrends(input: {
       supply: latestSupply.get(game.date) ?? null,
       snapshots: game.checks,
       liveMedian: game.latestMedian,
-      attendValue: 0,
     });
+  }
+
+  for (const game of games) {
+    const fair = game.projection.todayPrice ?? game.latestMedian ?? money(seeds.get(game.date)?.bookMedian);
+    const past = game.daysOut != null && game.daysOut < 0;
+    game.offers =
+      game.sold || past || fair == null
+        ? []
+        : askOffers({
+            predictedMedian: fair,
+            daysOut: Math.max(0, game.daysOut ?? 14),
+            supply: latestSupply.get(game.date) ?? 6,
+            curve,
+          });
+  }
+
+  const planOptions = {
+    breakEven: input.breakEven ?? SEASON_COST_DEFAULT,
+    cushion: input.cushion ?? SEASON_CUSHION_DEFAULT,
+  };
+  const cash = cashGamesFor(games, (game) => game.sitOrSell === "Sit");
+  const outlook = planSeason(cash, planOptions);
+  for (const game of games) {
+    if (game.sold) {
+      game.projection = { ...game.projection, suggestion: soldSuggestion(game.banked) };
+      continue;
+    }
+    if (game.sitOrSell === "Sit") {
+      const flipped = planSeason(withKeeping(cash, game.date, false), planOptions);
+      game.projection = { ...game.projection, suggestion: sitSuggestion(keepingSentence(outlook, flipped, true)) };
+      continue;
+    }
+    const chosen = outlook.asks[game.date];
+    if (!chosen) continue;
+    game.projection = { ...game.projection, suggestion: suggestionFromOffer(chosen, outlook.lean) };
   }
 
   games.sort((a, b) => a.date.localeCompare(b.date) || a.opponent.localeCompare(b.opponent));
@@ -612,7 +715,59 @@ function assembleTrends(input: {
       daysOutCurve: daysOutCurve(games),
       modelNote: modelExplainer(),
       early: fit.ok ? fit.early : true,
+      outlook,
     },
     market,
   };
+}
+
+function compSnaps(pulls: readonly TrendPull[], listings: readonly TrendListing[]): CompSnap[] {
+  const pullById = new Map(pulls.map((pull) => [pull.id, pull]));
+  const byPull = new Map<number, TrendListing[]>();
+  for (const row of listings) {
+    const list = byPull.get(row.pullId) ?? [];
+    list.push(row);
+    byPull.set(row.pullId, list);
+  }
+  const snaps: CompSnap[] = [];
+  for (const [pullId, rows] of byPull) {
+    const pull = pullById.get(pullId);
+    if (!pull?.gameDate || !DAY.test(pull.etDate)) continue;
+    const daysOut = daysUntil(pull.gameDate, pull.etDate);
+    if (daysOut == null) continue;
+    const comps = rows.map(toComp);
+    const quote = bandQuote(comps);
+    for (const row of rows) {
+      const comp = toComp(row);
+      if (!isCompListing(comp) || typeof comp.price !== "number" || comp.price <= 0) continue;
+      snaps.push({
+        gameDate: pull.gameDate,
+        etDate: pull.etDate,
+        pulledAt: pull.pulledAt,
+        daysOut,
+        section: extractSectionNumber(comp.section) ?? "",
+        row: normalizeRow(comp.row) ?? "",
+        quantity: comp.quantity ?? 0,
+        price: comp.price,
+        supply: quote?.count ?? null,
+        median: quote?.median ?? null,
+      });
+    }
+  }
+  return snaps;
+}
+
+function contextualSales(sales: readonly ProbableSale[], snaps: readonly CompSnap[]): ProbableSale[] {
+  const at = new Map<string, CompSnap>();
+  for (const snap of snaps) {
+    if (snap.median == null) continue;
+    const key = `${snap.gameDate}|${snap.etDate}`;
+    if (!at.has(key)) at.set(key, snap);
+  }
+  return sales.map((sale) => {
+    if (sale.median != null && sale.median > 0) return sale;
+    const snap = at.get(`${sale.gameDate}|${sale.goneDate}`) ?? at.get(`${sale.gameDate}|${sale.seenDate}`);
+    if (!snap?.median) return sale;
+    return { ...sale, median: snap.median, supply: sale.supply ?? snap.supply };
+  });
 }
