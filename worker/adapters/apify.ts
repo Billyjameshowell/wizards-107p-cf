@@ -184,7 +184,7 @@ export function emptyRunNote(
   if (rows.length > 0) parts.push(`rows: ${rowSample(rows)}`);
   const status = tailLine(diag.statusMessage, 200);
   if (status) parts.push(`status: ${status}`);
-  const log = tailLine(diag.logTail, 700);
+  const log = tailLine(diag.logTail, 1500);
   if (log) parts.push(`log: ${log}`);
   return parts.join(" || ");
 }
