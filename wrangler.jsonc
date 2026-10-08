@@ -42,5 +42,11 @@
 			"binding": "BOOK",
 			"id": "55280961d31940b692a03636f8ebb901"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "ARCHIVE",
+			"bucket_name": "wizards-107p-archive"
+		}
 	]
 }

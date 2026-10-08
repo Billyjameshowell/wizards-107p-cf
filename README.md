@@ -62,7 +62,13 @@ npx wrangler kv namespace create BOOK
 npm run db:migrate:remote
 ```
 
-4. Put production secrets with Wrangler (do not commit them). `CRON_SECRET` is required for the protected HTTP cron endpoint. Replace the paid API placeholders with real keys before enabling paid ingest:
+4. Create the archive bucket once (raw provider JSON). D1 still holds the pull and listing rows:
+
+```bash
+npx wrangler r2 bucket create wizards-107p-archive
+```
+
+5. Put production secrets with Wrangler (do not commit them). `CRON_SECRET` is required for the protected HTTP cron endpoint and for `/api/export`. Replace the paid API placeholders with real keys before enabling paid ingest:
 
 ```bash
 npx wrangler secret put CRON_SECRET
@@ -70,14 +76,14 @@ npx wrangler secret put SEATDATA_API_KEY
 npx wrangler secret put APIFY_TOKEN
 ```
 
-5. Deploy (official C3 script):
+6. Deploy (official C3 script):
 
 ```bash
 npm run deploy
 # same as: npm run build && wrangler deploy
 ```
 
-6. Open the `*.workers.dev` URL. The book UI loads from `/api/book`.
+7. Open the `*.workers.dev` URL. The book UI loads from `/api/book`. The first request also backfills the price archive (legacy rows, any existing `price_history` rows, and zone comps still sitting on the book). That backfill does not call SeatData or Apify.
 
 Cron is `0 12 * * *` UTC (~8am America/New_York). After deploy, Cloudflare runs `scheduled()` on that schedule. HTTP `/api/cron` is the same job and **requires** `Authorization: Bearer <CRON_SECRET>`.
 
@@ -132,12 +138,38 @@ To turn spend back off: edit the vars to set `INGEST_ENABLED: "false"` or `DRY_R
 - Seed: `data/seed-book.json` (43 home games). Used when D1/KV are empty.
 - Live book: D1 `store` key `book`, mirrored to KV `BOOK`.
 - Spend-state: D1/KV key `spend` (caps and circuit breaker). Not shown on the page.
-- Price history: D1 `price_history`, migration `migrations/0002_price_history.sql`. One row per game, source, and ET day. SeatData comp middles feed the suggestion, so it gets steadier as more mornings land. Apify get-in, arena median, and listing count are stored on the same table and do not set the ask. The worker also creates the table on the first run that writes it. Apply the migration before the next deploy:
+- Price history: D1 `price_history`, migration `migrations/0002_price_history.sql`. One row per game, source, and ET day. A later check the same day still replaces that summary row, and rows older than 120 days are still deleted from this table only. SeatData comp middles feed the suggestion, so it gets steadier as more mornings land. Apify get-in, arena median, and listing count are stored on the same table and do not set the ask. The worker also creates the table on the first run that writes it.
+- Price archive: D1 `price_pulls`, `price_listings`, and `price_run_summaries`, migration `migrations/0003_price_archive.sql`. Every pull is appended. Nothing in these tables is updated or deleted. Each SeatData listings response keeps every listing row (section, row, quantity, price, and the other scalar fields). Apify keeps one run row plus one row per home game. Failed and skipped attempts are rows too. The raw JSON body is gzipped into R2 bucket `wizards-107p-archive` when that binding is present. The daily `price_history` summary is unchanged and still drives the suggestion.
+
+Apply both migrations before the next deploy:
 
 ```bash
+npx wrangler r2 bucket create wizards-107p-archive
 npm run db:migrate:remote
+npm run deploy
 ```
 
-No new flags. Paid pulls stay off until `INGEST_ENABLED` and `DRY_RUN` are changed.
+The worker creates the archive tables if the migration has not been applied yet, then loads them once:
+
+- `data/legacy-price-history.json` (Aug 26–Sep 19 2026) as source `legacy-box`. Game rows are pulls. The three run-summary lines go to `price_run_summaries`. The original source label is `legacy_label`.
+- Every row already in `price_history`, whether that table is the daily summary shape or the older per-run shape with `market_details`.
+- `market_details` and `market_previous_details` on the live book, source `book-snapshot`, including their zone comps.
+
+The flag is D1 `store` key `archive_backfill_v1`. A failed load leaves the key unset and the next request tries again. Inserts use `ON CONFLICT DO NOTHING`, so a retry does not duplicate rows.
+
+Export is not linked from the book. It requires the same bearer token as `/api/cron` and sends `X-Robots-Tag: noindex`. `from` and `to` are America/New_York dates (`et_date`). CSV streams every matching row. JSON is paged (`limit` default 500, max 2000, `offset`).
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/export?format=csv&table=listings"
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/export?format=csv&table=pulls&game=2026-10-21&from=2026-08-26&to=2026-09-19&source=legacy-box"
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/export?format=json&table=summaries"
+```
+
+`table` is `pulls`, `listings`, or `summaries` (JSON also allows `all`).
+
+No new flags. Paid pulls stay off until `INGEST_ENABLED` and `DRY_RUN` are changed. Do not raise the spend caps.
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
