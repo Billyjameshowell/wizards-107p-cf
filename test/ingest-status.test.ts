@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { bookPullInstants, ingestStatusWarnings, latestInstant } from "@shared/ingest-status";
-import { authorizeAdmin, renderAdminStatusPage } from "../worker/admin-status";
+import { authorizeAdmin, isPricedHomePull, renderAdminStatusPage } from "../worker/admin-status";
 
 const NOW = new Date("2026-10-08T16:00:00.000Z");
 
@@ -73,11 +73,16 @@ describe("admin ingest warnings", () => {
       ingestEnabled: true,
       dryRun: false,
       lastPullAt: last,
+      lastAttemptAt: "2026-10-08T19:46:23.751Z",
       seatdataKey: true,
       apifyToken: false,
     });
     expect(html).toContain('role="alert"');
     expect(html).toContain("15 days ago");
+    expect(html).toContain("Last successful pull");
+    expect(html).toContain("home-game prices landed");
+    expect(html).toContain("Last attempt");
+    expect(html).toContain("3:46pm");
     expect(html).toContain("Apify token</dt><dd>missing");
     expect(html).toContain("noindex,nofollow");
   });
@@ -105,7 +110,51 @@ describe("production wrangler vars", () => {
     expect(config).toContain('"APIFY_MAX_TOTAL_CHARGE_USD": "0.50"');
     expect(config).toContain('"APIFY_MAX_EVENTS": "50"');
     expect(config).toContain('"APIFY_INCLUDE_LISTINGS": "false"');
+    expect(config).toContain('"SEATDATA_BASE_URL": "https://seatdata.io"');
+    expect(config).not.toContain("api.seatdata.io");
     expect(config).toContain('"bucket_name": "wizards-107p-archive"');
     expect(config).toContain('"crons": ["0 12 * * *"]');
+  });
+});
+
+
+describe("priced home pull helper", () => {
+  it("counts only ok game rows with listings or a price, not empty archive shells", () => {
+    expect(
+      isPricedHomePull({
+        game_date: null,
+        status: "ok",
+        listing_count: 0,
+        median: null,
+        get_in: null,
+      }),
+    ).toBe(false);
+    expect(
+      isPricedHomePull({
+        game_date: "2026-10-21",
+        status: "ok",
+        listing_count: 12,
+        median: 40,
+        get_in: null,
+      }),
+    ).toBe(true);
+    expect(
+      isPricedHomePull({
+        game_date: "2026-10-21",
+        status: "ok",
+        listing_count: null,
+        median: null,
+        get_in: 18,
+      }),
+    ).toBe(true);
+    expect(
+      isPricedHomePull({
+        game_date: "2026-10-21",
+        status: "empty",
+        listing_count: 0,
+        median: null,
+        get_in: null,
+      }),
+    ).toBe(false);
   });
 });

@@ -41,10 +41,12 @@ export function renderAdminStatusPage(args: {
   ingestEnabled: boolean;
   dryRun: boolean;
   lastPullAt: string | null;
+  lastAttemptAt?: string | null;
   seatdataKey: boolean;
   apifyToken: boolean;
 }): string {
   const last = args.lastPullAt ? formatEtStamp(new Date(args.lastPullAt)) : "none";
+  const attempt = args.lastAttemptAt ? formatEtStamp(new Date(args.lastAttemptAt)) : "none";
   const banners = args.warnings
     .map((warning) => `<p class="warn" role="alert">${escapeHtml(warning)}</p>`)
     .join("");
@@ -70,7 +72,8 @@ export function renderAdminStatusPage(args: {
   <dl>
     <dt>Ingest</dt><dd>${args.ingestEnabled ? "on" : "off"}</dd>
     <dt>Dry run</dt><dd>${args.dryRun ? "on" : "off"}</dd>
-    <dt>Last successful pull</dt><dd>${escapeHtml(last)} ET</dd>
+    <dt>Last successful pull</dt><dd>${escapeHtml(last)} ET <span style="font-weight:400;color:#445">(home-game prices landed)</span></dd>
+    <dt>Last attempt</dt><dd>${escapeHtml(attempt)} ET <span style="font-weight:400;color:#445">(any cron/http SeatData or Apify run)</span></dd>
     <dt>SeatData key</dt><dd>${args.seatdataKey ? "set" : "missing"}</dd>
     <dt>Apify token</dt><dd>${args.apifyToken ? "set" : "missing"}</dd>
     <dt>Caps</dt><dd>SeatData 20 per run, 25 per ET day. Apify $0.50 and 50 events. Listings off.</dd>
@@ -79,18 +82,54 @@ export function renderAdminStatusPage(args: {
 </html>`;
 }
 
-async function latestLivePull(env: Env): Promise<string | null> {
+/** A pull that actually returned home-game prices (not just an ok archive shell). */
+export function isPricedHomePull(row: {
+  game_date: string | null;
+  status: string;
+  listing_count: number | null;
+  median: number | null;
+  get_in: number | null;
+}): boolean {
+  if (row.status !== "ok" || !row.game_date) return false;
+  if (row.listing_count != null && row.listing_count > 0) return true;
+  if (row.median != null && Number.isFinite(row.median)) return true;
+  if (row.get_in != null && Number.isFinite(row.get_in)) return true;
+  return false;
+}
+
+async function latestSuccessfulLivePull(env: Env): Promise<string | null> {
   try {
     await ensureArchive(env);
     const row = await env.DB.prepare(
       `SELECT MAX(pulled_at) AS pulled_at FROM price_pulls
        WHERE source IN ('seatdata', 'apify')
-         AND status IN ('ok', 'empty')
-         AND trigger_name IN ('cron', 'http')`,
+         AND trigger_name IN ('cron', 'http')
+         AND status = 'ok'
+         AND game_date IS NOT NULL
+         AND (
+           COALESCE(listing_count, 0) > 0
+           OR median IS NOT NULL
+           OR get_in IS NOT NULL
+         )`,
     ).first<{ pulled_at: string | null }>();
     return row?.pulled_at ?? null;
   } catch (error) {
     console.error("admin last pull", error);
+    return null;
+  }
+}
+
+async function latestLiveAttempt(env: Env): Promise<string | null> {
+  try {
+    await ensureArchive(env);
+    const row = await env.DB.prepare(
+      `SELECT MAX(pulled_at) AS pulled_at FROM price_pulls
+       WHERE source IN ('seatdata', 'apify')
+         AND trigger_name IN ('cron', 'http')`,
+    ).first<{ pulled_at: string | null }>();
+    return row?.pulled_at ?? null;
+  } catch (error) {
+    console.error("admin last attempt", error);
     return null;
   }
 }
@@ -110,7 +149,12 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
   }
   const flags = parseFlags(env);
   const book = await readBook(env);
-  const lastPullAt = latestInstant([await latestLivePull(env), ...bookPullInstants(book)]);
+  const [pricedPull, lastAttemptAt] = await Promise.all([
+    latestSuccessfulLivePull(env),
+    latestLiveAttempt(env),
+  ]);
+  // Book asof still counts as a successful priced state when archive rows are thin.
+  const lastPullAt = latestInstant([pricedPull, ...bookPullInstants(book)]);
   const warnings = ingestStatusWarnings({
     ingestEnabled: flags.ingestEnabled,
     dryRun: flags.dryRun,
@@ -122,6 +166,7 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
     ingestEnabled: flags.ingestEnabled,
     dryRun: flags.dryRun,
     lastPullAt,
+    lastAttemptAt,
     seatdataKey: Boolean(env.SEATDATA_API_KEY?.trim()),
     apifyToken: Boolean(env.APIFY_TOKEN?.trim()),
   });

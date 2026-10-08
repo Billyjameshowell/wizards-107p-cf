@@ -33,17 +33,28 @@ function wizardsEvent(event: SearchEvent): boolean {
   return name.includes("wizard");
 }
 
+/** Build a SeatData absolute URL. Base is origin only (e.g. https://seatdata.io). */
+export function buildSeatdataUrl(
+  baseUrl: string,
+  path: string,
+  query: Record<string, string> = {},
+): string {
+  const base = baseUrl.replace(/\/$/, "");
+  const url = new URL(path.startsWith("/") ? path : `/${path}`, `${base}/`);
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
+}
+
 async function seatdataFetch(
   env: Env,
   path: string,
   query: Record<string, string>,
 ): Promise<Response> {
   const flags = parseFlags(env);
-  const url = new URL(path, `${flags.seatdataBaseUrl}/`);
-  for (const [key, value] of Object.entries(query)) {
-    url.searchParams.set(key, value);
-  }
-  return fetch(url.toString(), {
+  const url = buildSeatdataUrl(flags.seatdataBaseUrl, path, query);
+  return fetch(url, {
     headers: {
       Authorization: `Bearer ${env.SEATDATA_API_KEY ?? ""}`,
       Accept: "application/json",
@@ -84,7 +95,7 @@ export async function runSeatData(
     };
   }
 
-  const search = await seatdataFetch(ctx.env, "/v1/events/search", {
+  const search = await seatdataFetch(ctx.env, "/api/v1/events/search", {
     venue_name: "Capital One Arena",
     event_name: "Washington Wizards",
     limit: "200",
@@ -192,7 +203,7 @@ export async function runSeatData(
       break;
     }
 
-    const listingsRes = await seatdataFetch(ctx.env, "/v0.1.1/listings/get", {
+    const listingsRes = await seatdataFetch(ctx.env, "/api/v0.1.1/listings/get", {
       event_id: String(event.event_id),
     });
 

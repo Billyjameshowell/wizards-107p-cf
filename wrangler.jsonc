@@ -25,7 +25,7 @@
 		"DRY_RUN": "false",
 		"SOURCES": "seatdata,apify",
 		"APIFY_INCLUDE_LISTINGS": "false",
-		"SEATDATA_BASE_URL": "https://api.seatdata.io",
+		"SEATDATA_BASE_URL": "https://seatdata.io",
 		"SEATDATA_MAX_PULLS_PER_RUN": "20",
 		"SEATDATA_MAX_PULLS_PER_ET_DAY": "25",
 		"APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
