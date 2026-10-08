@@ -68,9 +68,10 @@ npm run db:migrate:remote
 npx wrangler r2 bucket create wizards-107p-archive
 ```
 
-5. Put production secrets with Wrangler (do not commit them). `CRON_SECRET` is required for the protected HTTP cron endpoint and for `/api/export`. Replace the paid API placeholders with real keys before enabling paid ingest:
+5. Confirm production secrets before deploy. `secret list` prints names only. Put a secret only when that name is missing. `SEATDATA_API_KEY` and `APIFY_TOKEN` have to be real keys, because this deploy turns paid pulls on:
 
 ```bash
+npx wrangler secret list
 npx wrangler secret put CRON_SECRET
 npx wrangler secret put SEATDATA_API_KEY
 npx wrangler secret put APIFY_TOKEN
