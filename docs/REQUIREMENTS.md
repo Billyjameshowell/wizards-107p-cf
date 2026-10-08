@@ -35,15 +35,15 @@ Do not invent prices. TicketData scrape and auto-listing are out of scope.
 
 | Flag / cap | Default | Rule |
 | --- | --- | --- |
-| `INGEST_ENABLED` | `false` | No paid calls until flipped |
-| `DRY_RUN` | `true` | Even with ingest on, skip paid HTTP |
+| `INGEST_ENABLED` | on in `wrangler.jsonc` | Missing var still defaults off |
+| `DRY_RUN` | off in `wrangler.jsonc` | Missing var still defaults on |
 | SeatData pulls | 20 / run, 25 / ET-day | Env may lower, never raise |
 | Apify | `maxTotalChargeUsd=0.50`, max 50 events | Listings off unless flagged |
 | Paid attempts | 1 per source per run | Second try is blocked |
 | 429 / 5xx | Abort that source | Open an ET-day circuit breaker |
 | `/api/cron` | Bearer `CRON_SECRET` | Fail closed if secret missing |
 
-Unit tests in `test/guardrails.test.ts` lock these rules. Saving price history does not add a paid call. It runs only after a pull that already passed these gates. There is no new flag. `INGEST_ENABLED` stays false and `DRY_RUN` stays true.
+Unit tests in `test/guardrails.test.ts` lock the caps and the empty-env defaults. Production `wrangler.jsonc` sets ingest on and dry run off; `wrangler deploy` replaces dashboard vars with that file. Do not put the empty-env defaults back into `wrangler.jsonc`. Saving price history does not add a paid call. It runs only after a pull that already passed these gates. There is no new flag. Caps are not raised.
 
 ## HTTP and schedule
 

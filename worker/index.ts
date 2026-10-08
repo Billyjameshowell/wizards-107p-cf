@@ -1,4 +1,5 @@
 import { authorizeBearer } from "../src/shared/guardrails";
+import { adminStatusResponse } from "./admin-status";
 import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
 import { runIngest } from "./ingest";
@@ -17,6 +18,10 @@ export default {
       }),
     );
     const url = new URL(request.url);
+
+    if (url.pathname === "/admin") {
+      return adminStatusResponse(request, env);
+    }
 
     if (url.pathname === "/api/book" && request.method === "GET") {
       const book = await loadLiveBook(env);
