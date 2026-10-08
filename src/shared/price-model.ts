@@ -25,6 +25,8 @@ export const HOME_SLATE = 43;
 export const SEASON_CUSHION_DEFAULT = 0.15;
 /** A vanished pair this many days before tip can count as a possible sale. */
 export const LIKELY_SOLD_MIN_DAYS = 3;
+/** Within this many days of tip, a listing has to beat the instant offer. */
+export const NEAR_TIP_DAYS = 7;
 /** Same section, row, and quantity within this price band is a price edit. */
 export const PRICE_EDIT_BAND = 0.08;
 /** 80% of a normal curve sits inside ± this many standard deviations. */
@@ -159,6 +161,7 @@ const TERM_NAMES = [
   "nationalTv",
   "winRate",
   "logSupply",
+  "logInstant",
 ] as const;
 
 export type TermName = (typeof TERM_NAMES)[number];
@@ -176,6 +179,8 @@ export type MarketRow = {
   winRate: number | null;
   /** Comparable seats listed that day. Null when unknown. */
   supply: number | null;
+  /** Guaranteed per-seat payout known on this day. Null when none was logged. */
+  instantPerTicket?: number | null;
 };
 
 export type GameQuery = {
@@ -188,6 +193,8 @@ export type GameQuery = {
   supply: number | null;
   snapshots: number;
   liveMedian: number | null;
+  /** Guaranteed per-seat payout, when one is logged. */
+  instantPerTicket?: number | null;
 };
 
 export type ListSuggestion = {
@@ -196,6 +203,9 @@ export type ListSuggestion = {
   saleChance: number | null;
   /** Expected cash for both seats if offered at `ask`, after the 5% fee. */
   expectedKeep: number | null;
+  /** True when the instant offer beats every ask this close to tip. */
+  takeInstant: boolean;
+  instantTotal: number | null;
   sentence: string;
 };
 
@@ -227,6 +237,8 @@ export type MarketFit = {
   counts: Record<string, number>;
   supplyMean: number;
   winRateMean: number;
+  /** Mean log per-seat instant offer. Null until enough offers are logged. */
+  instantMean: number | null;
   minLog: number;
   maxLog: number;
   rows: number;
@@ -250,6 +262,7 @@ export type FitResult = MarketFit | FitFailure;
 type FitContext = {
   supplyMean: number;
   winRateMean: number;
+  instantMean: number | null;
 };
 
 export function opponentTier(opponent: string, demand: string | null | undefined): OpponentTier {
@@ -328,6 +341,8 @@ export function modelExplainer(): string {
     "The season goal is $6,000 after fees, plus a 15% cushion. Each suggested ask is the per-seat price that adds the most expected cash for the pair, after the 5% fee. Games marked Sit are left out of that plan.",
     "If the chance of clearing the goal is low, suggestions lean toward a price more likely to sell. If the chance is high, they can hold out for more.",
     "A pair that vanishes well before tip is treated as a possible sale, not a sure one. Those notes slowly shape the chance of a sale.",
+    "When an instant offer is saved, that guaranteed price joins the estimate, and the estimate stays at or above the per-seat price the offer implies.",
+    "Within a week of tip, a suggestion that would be expected to clear less than the instant offer says to take the instant offer.",
     "It is only a suggestion. Nothing is listed for you.",
   ].join(" ");
 }
@@ -395,6 +410,7 @@ export function fitMarketModel(
     counts: shrunk.counts,
     supplyMean: ctx.supplyMean,
     winRateMean: ctx.winRateMean,
+    instantMean: ctx.instantMean,
     minLog: Math.min(...logs),
     maxLog: Math.max(...logs),
     rows: clean.length,
@@ -414,12 +430,14 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
   const tipRaw = predictPrice(fit, game, 0);
   if (!todayRaw || !tipRaw) return notEnough();
 
-  const today = bandAround(blendTowardLive(todayRaw, game.liveMedian, fit.blend));
-  const tip = bandAround(blendTowardLive(tipRaw, game.liveMedian, fit.blend));
+  const today = bandAround(anchorToInstant(blendTowardLive(todayRaw, game.liveMedian, fit.blend), game.instantPerTicket));
+  const tip = bandAround(anchorToInstant(blendTowardLive(tipRaw, game.liveMedian, fit.blend), game.instantPerTicket));
   const suggestion = suggestListPrice({
     predictedMedian: today.price,
     daysOut: game.daysOut,
     supply: game.supply ?? 0,
+    instantPerTicket: game.instantPerTicket,
+    instantTotal: game.instantPerTicket != null && game.instantPerTicket > 0 ? game.instantPerTicket * PAIR_SEATS : null,
   });
 
   const earlyLead = fit.early ? "Early estimate. " : "";
@@ -509,10 +527,47 @@ export function suggestListPrice(args: {
   daysOut: number;
   supply: number;
   curve?: SaleCurve;
+  instantTotal?: number | null;
+  instantPerTicket?: number | null;
 }): ListSuggestion {
-  const best = bestExpectedOffer(askOffers(args));
+  const guarded = offersNearTip(askOffers(args), args.instantTotal ?? null, args.daysOut);
+  if (guarded.takeInstant && args.instantTotal != null) {
+    const perTicket = args.instantPerTicket != null && args.instantPerTicket > 0 ? args.instantPerTicket : args.instantTotal / PAIR_SEATS;
+    return takeInstantSuggestion(args.instantTotal, perTicket);
+  }
+  const best = bestExpectedOffer(guarded.offers);
   if (!best) return holdSuggestion("Not enough of a price to suggest an ask. Nothing is listed for you.");
   return suggestionFromOffer(best);
+}
+
+/**
+ * Close to tip, drop asks whose expected cash is under the guaranteed offer.
+ * If every ask falls short, the suggestion is to take the instant offer.
+ * No asks at all means there is no price to compare, so the offer stays a floor only.
+ */
+export function offersNearTip(
+  offers: readonly AskOffer[],
+  instantTotal: number | null,
+  daysOut: number,
+): { offers: AskOffer[]; takeInstant: boolean } {
+  if (instantTotal == null || !(instantTotal > 0) || daysOut > NEAR_TIP_DAYS || offers.length === 0) {
+    return { offers: [...offers], takeInstant: false };
+  }
+  const viable = offers.filter((offer) => offer.expected + 0.005 >= instantTotal);
+  if (viable.length === 0) return { offers: [], takeInstant: true };
+  return { offers: viable, takeInstant: false };
+}
+
+export function takeInstantSuggestion(total: number, perTicket: number): ListSuggestion {
+  return {
+    ask: null,
+    hold: true,
+    saleChance: null,
+    expectedKeep: Math.round(total * 100) / 100,
+    takeInstant: true,
+    instantTotal: Math.round(total * 100) / 100,
+    sentence: `Take the instant offer. It pays ${exactDollars(total)} for the pair (${exactDollars(perTicket)} a seat). A listing this close to tip is not expected to clear that. Nothing is listed for you.`,
+  };
 }
 
 export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSuggestion {
@@ -528,6 +583,8 @@ export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSug
     hold: false,
     saleChance: offer.chance,
     expectedKeep: offer.expected,
+    takeInstant: false,
+    instantTotal: null,
     sentence: `Suggested ask: ${dollars(offer.ask)} a seat. The rough chance of a sale before tip is ${chancePct}%. Expected cash for the pair, after the 5% fee, is about ${dollars(offer.expected)}.${leanBit} This is only a suggestion. Nothing is listed for you.`,
   };
 }
@@ -898,6 +955,7 @@ function rowToQuery(row: MarketRow): GameQuery {
     supply: row.supply,
     snapshots: MIN_SNAPSHOTS,
     liveMedian: row.median,
+    instantPerTicket: row.instantPerTicket ?? null,
   };
 }
 
@@ -923,13 +981,18 @@ function countObserved(rows: readonly MarketRow[], today: string): number {
 function imputeContext(rows: readonly MarketRow[]): FitContext {
   const supplies: number[] = [];
   const rates: number[] = [];
+  const instants: number[] = [];
   for (const row of rows) {
     if (row.supply != null && Number.isFinite(row.supply) && row.supply >= 0) supplies.push(Math.log(1 + row.supply));
     if (row.winRate != null && Number.isFinite(row.winRate)) rates.push(row.winRate);
+    if (row.instantPerTicket != null && Number.isFinite(row.instantPerTicket) && row.instantPerTicket > 0) {
+      instants.push(Math.log(row.instantPerTicket));
+    }
   }
   return {
     supplyMean: supplies.length >= 8 ? average(supplies) : 0,
     winRateMean: rates.length >= 8 ? average(rates) : 0.5,
+    instantMean: instants.length >= 8 ? average(instants) : null,
   };
 }
 
@@ -963,6 +1026,12 @@ function rawFeatures(row: MarketRow, ctx: FitContext, knots: readonly number[]):
     row.supply == null || !Number.isFinite(row.supply) || row.supply < 0
       ? ctx.supplyMean
       : Math.log(1 + row.supply);
+  const instant =
+    ctx.instantMean == null
+      ? 0
+      : row.instantPerTicket != null && Number.isFinite(row.instantPerTicket) && row.instantPerTicket > 0
+        ? Math.log(row.instantPerTicket)
+        : ctx.instantMean;
   return [
     1,
     days,
@@ -974,11 +1043,12 @@ function rawFeatures(row: MarketRow, ctx: FitContext, knots: readonly number[]):
     row.nationalTv ? 1 : 0,
     win,
     supply,
+    instant,
   ];
 }
 
 function featuresFor(fit: MarketFit, game: GameQuery, daysOut: number): number[] {
-  const ctx = { supplyMean: fit.supplyMean, winRateMean: fit.winRateMean };
+  const ctx = { supplyMean: fit.supplyMean, winRateMean: fit.winRateMean, instantMean: fit.instantMean ?? null };
   const raw = rawFeatures(
     {
       gameDate: game.gameDate,
@@ -1184,8 +1254,29 @@ function holdSuggestion(sentence: string): ListSuggestion {
     hold: true,
     saleChance: null,
     expectedKeep: null,
+    takeInstant: false,
+    instantTotal: null,
     sentence,
   };
+}
+
+/** Per-seat listing price implied by a guaranteed payout, after the 5% fee. */
+export function impliedAsk(perTicket: number): number {
+  if (!Number.isFinite(perTicket) || perTicket <= 0) return 0;
+  return perTicket / SELLER_KEEP_RATE;
+}
+
+function anchorToInstant(
+  band: { price: number; low: number; high: number },
+  perTicket: number | null | undefined,
+): { price: number; low: number; high: number } {
+  const floor = impliedAsk(perTicket ?? 0);
+  if (floor <= 0 || band.price >= floor) return band;
+  return { price: floor, low: Math.min(band.low, floor), high: Math.max(band.high, floor) };
+}
+
+function exactDollars(value: number): string {
+  return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 function tiltOffer(offers: readonly AskOffer[], ev: AskOffer, lean: SeasonLean): AskOffer {

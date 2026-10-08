@@ -117,3 +117,18 @@ export const LIKELY_SALES_DDL = `CREATE TABLE IF NOT EXISTS likely_sales (
 CREATE INDEX IF NOT EXISTS idx_likely_sales_game
   ON likely_sales (game_date);
 `;
+
+/** Guaranteed sell-now offers. Append-only. One row each time one is logged. */
+export const INSTANT_OFFER_DDL = `CREATE TABLE IF NOT EXISTS instant_offers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_date TEXT NOT NULL,
+  offered_total REAL NOT NULL,
+  per_ticket REAL NOT NULL,
+  observed_at TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'tm_instant_offer',
+  note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_instant_offers_game
+  ON instant_offers (game_date, observed_at);
+`;

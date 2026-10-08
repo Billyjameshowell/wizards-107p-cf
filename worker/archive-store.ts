@@ -11,7 +11,7 @@ import {
   type ExportQuery,
   type ObservedPull,
 } from "../src/shared/archive";
-import { ARCHIVE_DDL, LIKELY_SALES_DDL, MODEL_FIT_DDL } from "../src/shared/archive-schema";
+import { ARCHIVE_DDL, INSTANT_OFFER_DDL, LIKELY_SALES_DDL, MODEL_FIT_DDL } from "../src/shared/archive-schema";
 import type { MarketPoint } from "./adapters/types";
 import { readBook } from "./store";
 
@@ -90,7 +90,7 @@ export async function archiveObserved(
 export async function ensureArchive(env: Env): Promise<void> {
   // D1 exec rejects leading -- comments and can choke on multi-statement DDL.
   // Run each statement alone (tables may already exist from migrations).
-  const statements = `${ARCHIVE_DDL}\n${MODEL_FIT_DDL}\n${LIKELY_SALES_DDL}`.split(";")
+  const statements = `${ARCHIVE_DDL}\n${MODEL_FIT_DDL}\n${LIKELY_SALES_DDL}\n${INSTANT_OFFER_DDL}`.split(";")
     .map((part) =>
       part
         .split("\n")

@@ -5,6 +5,7 @@ import {
   planSeason,
   soldSuggestion,
   suggestionFromOffer,
+  takeInstantSuggestion,
   withKeeping,
   type ListSuggestion,
   type SeasonOutlook,
@@ -158,8 +159,12 @@ function planFor(report: TrendsReport, scenario: ScenarioMap): SeasonOutlook {
   });
 }
 
-function suggestionFor(game: TrendsGame, outlook: SeasonOutlook): ListSuggestion | null {
+function suggestionFor(game: TrendsGame, outlook: SeasonOutlook, scenario: ScenarioMap): ListSuggestion | null {
   if (game.sold) return soldSuggestion(game.banked);
+  if (choiceOf(game, scenario) === "Sit") return null;
+  if (game.takeInstant && game.instantOffer) {
+    return takeInstantSuggestion(game.instantOffer.total, game.instantOffer.perTicket);
+  }
   const chosen = outlook.asks[game.date];
   if (!chosen) return null;
   return suggestionFromOffer(chosen, outlook.lean);
@@ -370,7 +375,14 @@ function AskLine({ game, outlook, scenario }: { game: TrendsGame; outlook: Seaso
   if (choiceOf(game, scenario) === "Sit") {
     return <p className="mt-1 text-xs font-medium text-muted-foreground">Sit · left out of the cash plan</p>;
   }
-  const suggestion = suggestionFor(game, outlook);
+  if (game.takeInstant && game.instantOffer) {
+    return (
+      <p className="mt-1 text-xs font-medium text-navy">
+        Take the instant offer · {formatMoney(game.instantOffer.total)} for the pair
+      </p>
+    );
+  }
+  const suggestion = suggestionFor(game, outlook, scenario);
   if (!suggestion?.ask) return null;
   return (
     <p className="mt-1 text-xs font-medium text-navy">
@@ -622,7 +634,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
 function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) {
   const { scenario, choose } = useScenario();
   const outlook = useMemo(() => planFor(report, scenario), [report, scenario]);
-  const suggestion = suggestionFor(game, outlook);
+  const suggestion = suggestionFor(game, outlook, scenario);
   const note = keepingNote(report, game, scenario, outlook);
   const checksLabel = game.checks === 1 ? "1 price check" : `${game.checks} price checks`;
   const span =
@@ -680,6 +692,14 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
         />
         <Stat label="Expected season cash" value={formatMoney(outlook.expectedTotal)} />
         <Stat label="Chance of the goal" value={`${Math.round(outlook.chance * 100)}%`} />
+        <Stat
+          label="Instant offer"
+          value={
+            game.instantOffer
+              ? `${formatMoney(game.instantOffer.perTicket)} a seat`
+              : "—"
+          }
+        />
         <Stat label="You keep" value={formatMoney(game.keep)} />
         <Stat label="Both seats" value={formatMoney(game.pair)} />
         <Stat label="7-day" value={formatSignedPercent(game.change7d)} tone={percentClass(game.change7d)} />
@@ -702,6 +722,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
             today={report.today}
             gameDate={game.date}
             projection={game.projection}
+            floor={game.instantOffer?.perTicket ?? null}
             title={`${game.opponent} similar-seat prices`}
           />
         </div>

@@ -9,6 +9,7 @@ const RED = "#8a1f1f";
 const MUTED = "#5c6574";
 const GRID = "#e4ddd0";
 const TIP = "#c4a36a";
+const FLOOR = "#6b3fa0";
 
 type Point = { date: string; median: number; cheapest: number | null };
 
@@ -113,6 +114,7 @@ export function PriceTrendChart({
   gameDate,
   projection,
   title,
+  floor,
 }: {
   points: Point[];
   ask: number | null;
@@ -120,6 +122,8 @@ export function PriceTrendChart({
   gameDate: string;
   projection: PriceProjection;
   title: string;
+  /** Guaranteed per-seat payout. Drawn when it sits near the other prices. */
+  floor?: number | null;
 }) {
   const { ref, width } = useWidth();
   const labelId = useId();
@@ -148,6 +152,9 @@ export function PriceTrendChart({
     if (point.cheapest != null) values.push(point.cheapest);
   }
   if (ask != null) values.push(ask);
+  const seriesFloor = Math.min(...values);
+  const floorOnScale = floor != null && floor > 0 && floor >= seriesFloor * 0.45;
+  if (floorOnScale && floor != null) values.push(floor);
   if (projection.enough && projection.low != null && projection.high != null && projection.price != null) {
     values.push(projection.low, projection.high, projection.price);
   }
@@ -208,6 +215,19 @@ export function PriceTrendChart({
               strokeDasharray="5 4"
             />
           ) : null}
+          {floorOnScale && floor != null ? (
+            <line
+              x1={pad.left}
+              x2={plotRight}
+              y1={yOf(floor)}
+              y2={yOf(floor)}
+              stroke={FLOOR}
+              strokeWidth="1.75"
+              strokeDasharray="2 3"
+            >
+              <title>{`Instant offer ${formatMoney(floor)} a seat`}</title>
+            </line>
+          ) : null}
           {cheapPoints.length > 1 ? (
             <polyline fill="none" stroke={GOLD} strokeWidth="2" strokeLinejoin="round" points={cheapLine} />
           ) : null}
@@ -263,6 +283,14 @@ export function PriceTrendChart({
         {ask != null ? (
           <span className="inline-flex items-center gap-1.5">
             <LegendSwatch stroke={GREEN} dashed /> Your ask today
+          </span>
+        ) : null}
+        {floor != null && floor > 0 ? (
+          <span className="inline-flex items-center gap-1.5">
+            <LegendSwatch stroke={FLOOR} dashed />
+            {floorOnScale
+              ? `Instant offer ${formatMoney(floor)} a seat`
+              : `Instant offer ${formatMoney(floor)} a seat, under these prices`}
           </span>
         ) : null}
         <span className="inline-flex items-center gap-1.5">

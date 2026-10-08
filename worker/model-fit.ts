@@ -14,6 +14,7 @@ import {
 } from "../src/shared/price-model";
 import { proxySales } from "../src/shared/trends";
 import { ensureArchive } from "./archive-store";
+import { loadInstantOffers } from "./instant-offers";
 import { insertProbableSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
 import { loadTrendListings, loadTrendPulls, toSeed } from "./trends";
@@ -64,12 +65,17 @@ export async function prepareModelFit(env: Env, trigger: string, now = new Date(
   await ensureArchive(env);
   const today = etYmd(now);
   const book = await loadLiveBook(env);
-  const [pulls, listings] = await Promise.all([loadTrendPulls(env), loadTrendListings(env)]);
+  const [pulls, listings, instantOffers] = await Promise.all([
+    loadTrendPulls(env),
+    loadTrendListings(env),
+    loadInstantOffers(env),
+  ]);
   return fitFromArchive({
     today,
     games: book.games.map(toSeed),
     pulls,
     listings,
+    instantOffers,
     fittedAt: now.toISOString(),
     etDate: etDateFrom(now),
     trigger,
@@ -81,6 +87,7 @@ export function fitFromArchive(input: {
   games: readonly TrendsGameSeed[];
   pulls: readonly TrendPull[];
   listings: readonly TrendListing[];
+  instantOffers?: Parameters<typeof cleanedMarketRows>[0]["instantOffers"];
   fittedAt: string;
   etDate: string;
   trigger: string;
@@ -90,6 +97,7 @@ export function fitFromArchive(input: {
     games: input.games,
     pulls: input.pulls,
     listings: input.listings,
+    instantOffers: input.instantOffers,
   });
   const fit = fitMarketModel(rows, input.today);
   const holdout = holdoutMedianAbsPercent(rows, input.today);

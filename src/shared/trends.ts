@@ -9,6 +9,7 @@ import {
   SEASON_COST_DEFAULT,
   type CompListing,
 } from "./book";
+import { offerAsOf, type LoggedInstantOffer } from "./instant-offer";
 import {
   askOffers,
   calibrateSaleCurve,
@@ -19,6 +20,7 @@ import {
   keepingSentence,
   modelExplainer,
   NOT_ENOUGH_DATA,
+  offersNearTip,
   planSeason,
   projectGame,
   saleSamples,
@@ -26,6 +28,7 @@ import {
   sitSuggestion,
   soldSuggestion,
   suggestionFromOffer,
+  takeInstantSuggestion,
   withKeeping,
   opponentTier,
   type AskOffer,
@@ -129,6 +132,10 @@ export type TrendsGame = {
   banked: number;
   /** Candidate asks for the season cash plan. Empty when the game is sold or past. */
   offers: AskOffer[];
+  /** Latest guaranteed payout logged for this game. */
+  instantOffer: { total: number; perTicket: number; seen: string } | null;
+  /** Close to tip, every ask is expected to clear less than the instant offer. */
+  takeInstant: boolean;
 };
 
 export type DaysOutBucket = {
@@ -442,7 +449,10 @@ function emptyProjection(sentence = NOT_ENOUGH_DATA): PriceProjection {
   };
 }
 
-function marketRow(seed: TrendsGameSeed, point: { date: string; daysOut: number; median: number; supply: number | null }): MarketRow {
+function marketRow(
+  seed: TrendsGameSeed,
+  point: { date: string; daysOut: number; median: number; supply: number | null; instantPerTicket: number | null },
+): MarketRow {
   return {
     gameDate: seed.date,
     snapshotDate: point.date,
@@ -453,6 +463,7 @@ function marketRow(seed: TrendsGameSeed, point: { date: string; daysOut: number;
     nationalTv: isNationalTv(seed.notes, seed.nationalTv),
     winRate: seed.wizardsWinRate ?? null,
     supply: point.supply,
+    instantPerTicket: point.instantPerTicket,
   };
 }
 
@@ -467,6 +478,7 @@ export function buildTrendsReport(input: {
   breakEven?: number;
   cushion?: number;
   certainSales?: readonly ProbableSale[];
+  instantOffers?: readonly LoggedInstantOffer[];
 }): TrendsReport {
   return assembleTrends(input).report;
 }
@@ -477,6 +489,7 @@ export function cleanedMarketRows(input: {
   games: readonly TrendsGameSeed[];
   pulls: readonly TrendPull[];
   listings: readonly TrendListing[];
+  instantOffers?: readonly LoggedInstantOffer[];
 }): MarketRow[] {
   return assembleTrends(input).market;
 }
@@ -519,6 +532,7 @@ function assembleTrends(input: {
   breakEven?: number;
   cushion?: number;
   certainSales?: readonly ProbableSale[];
+  instantOffers?: readonly LoggedInstantOffer[];
 }): { report: TrendsReport; market: MarketRow[] } {
   const listingsByPull = new Map<number, CompListing[]>();
   for (const row of input.listings) {
@@ -582,6 +596,7 @@ function assembleTrends(input: {
             daysOut: pointDays,
             median: row.median,
             supply: row.supply,
+            instantPerTicket: offerAsOf(input.instantOffers ?? [], seed.date, row.etDate)?.perTicket ?? null,
           }),
         );
         latestSupply.set(seed.date, row.supply);
@@ -629,6 +644,8 @@ function assembleTrends(input: {
       sold: seed.sold === true,
       banked: seed.sold && seed.listedAsk != null && seed.listedAsk > 0 ? pairFromTypeIn(seed.listedAsk) : 0,
       offers: [],
+      instantOffer: loggedFloor(input.instantOffers ?? [], seed.date, input.today),
+      takeInstant: false,
     });
   }
 
@@ -649,13 +666,14 @@ function assembleTrends(input: {
       supply: latestSupply.get(game.date) ?? null,
       snapshots: game.checks,
       liveMedian: game.latestMedian,
+      instantPerTicket: game.instantOffer?.perTicket ?? null,
     });
   }
 
   for (const game of games) {
     const fair = game.projection.todayPrice ?? game.latestMedian ?? money(seeds.get(game.date)?.bookMedian);
     const past = game.daysOut != null && game.daysOut < 0;
-    game.offers =
+    const raw =
       game.sold || past || fair == null
         ? []
         : askOffers({
@@ -664,6 +682,9 @@ function assembleTrends(input: {
             supply: latestSupply.get(game.date) ?? 6,
             curve,
           });
+    const guarded = offersNearTip(raw, game.instantOffer?.total ?? null, game.daysOut ?? 99);
+    game.offers = guarded.offers;
+    game.takeInstant = guarded.takeInstant;
   }
 
   const planOptions = {
@@ -680,6 +701,13 @@ function assembleTrends(input: {
     if (game.sitOrSell === "Sit") {
       const flipped = planSeason(withKeeping(cash, game.date, false), planOptions);
       game.projection = { ...game.projection, suggestion: sitSuggestion(keepingSentence(outlook, flipped, true)) };
+      continue;
+    }
+    if (game.takeInstant && game.instantOffer) {
+      game.projection = {
+        ...game.projection,
+        suggestion: takeInstantSuggestion(game.instantOffer.total, game.instantOffer.perTicket),
+      };
       continue;
     }
     const chosen = outlook.asks[game.date];
@@ -719,6 +747,16 @@ function assembleTrends(input: {
     },
     market,
   };
+}
+
+function loggedFloor(
+  offers: readonly LoggedInstantOffer[],
+  gameDate: string,
+  today: string,
+): TrendsGame["instantOffer"] {
+  const offer = offerAsOf(offers, gameDate, today);
+  if (!offer) return null;
+  return { total: offer.total, perTicket: offer.perTicket, seen: offer.observedAt.slice(0, 10) };
 }
 
 function compSnaps(pulls: readonly TrendPull[], listings: readonly TrendListing[]): CompSnap[] {

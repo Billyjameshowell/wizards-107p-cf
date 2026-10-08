@@ -8,6 +8,7 @@ import {
   type TrendsGameSeed,
 } from "../src/shared/trends";
 import { ensureArchiveBackfill } from "./archive-store";
+import { loadInstantOffers } from "./instant-offers";
 import { loadCertainSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
 
@@ -145,10 +146,11 @@ export async function trendsResponse(env: Env, now = new Date()): Promise<Respon
   try {
     await ensureArchiveBackfill(env);
     const book = await loadLiveBook(env);
-    const [pulls, listings, certainSales] = await Promise.all([
+    const [pulls, listings, certainSales, instantOffers] = await Promise.all([
       loadTrendPulls(env),
       loadTrendListings(env),
       loadCertainSales(env),
+      loadInstantOffers(env),
     ]);
     const report = buildTrendsReport({
       today: etYmd(now),
@@ -161,6 +163,7 @@ export async function trendsResponse(env: Env, now = new Date()): Promise<Respon
       breakEven: book.season_cost,
       cushion: cushionOf(env),
       certainSales,
+      instantOffers,
     });
     return Response.json(report, {
       headers: { "Cache-Control": "public, max-age=120" },

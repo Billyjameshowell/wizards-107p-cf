@@ -4,6 +4,7 @@ import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
 import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
+import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { trendsResponse } from "./trends";
 
 const PRIVATE = {
@@ -22,6 +23,10 @@ export default {
 
     if (url.pathname === "/admin") {
       return adminStatusResponse(request, env);
+    }
+
+    if (url.pathname === "/admin/instant-offer" && request.method === "POST") {
+      return instantOfferFormResponse(request, env);
     }
 
     if (url.pathname === "/api/book" && request.method === "GET") {
@@ -48,6 +53,10 @@ export default {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
       return Response.json(await runIngest(env, "http"));
+    }
+
+    if (url.pathname === "/api/instant-offers" && (request.method === "GET" || request.method === "POST")) {
+      return instantOfferApiResponse(request, env);
     }
 
     if (url.pathname.startsWith("/api/")) {

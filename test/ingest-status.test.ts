@@ -102,6 +102,8 @@ describe("admin ingest warnings", () => {
     expect(html).toContain("6.5% median miss on the next price check");
     expect(html).toContain("early estimate");
     expect(html).toContain("140 cleaned checks");
+    expect(html).toContain("Save instant offer");
+    expect(html).toContain("Get Paid $26.60");
   });
 });
 

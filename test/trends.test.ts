@@ -174,6 +174,8 @@ describe("buildTrendsReport", () => {
     expect(bucks?.projection.todayPrice).not.toBeNull();
     expect(bucks?.projection.suggestion?.sentence).toMatch(/Nothing is listed for you/);
     expect(bucks?.ask).not.toBeNull();
+    expect(bucks?.instantOffer).toBeNull();
+    expect(bucks?.takeInstant).toBe(false);
 
     const pistons = report.games.find((row) => row.date === "2026-10-10");
     expect(pistons?.checks).toBe(0);
@@ -196,6 +198,37 @@ function expectPublic(report: TrendsReport) {
   expect(text).not.toContain("apify");
 }
 
+describe("instant offer floor", () => {
+  it("shows the logged payout and tells you to take it when a listing would clear less near tip", () => {
+    const report = buildTrendsReport({
+      today: "2026-10-08",
+      games: [seed({ date: "2026-10-10", opponent: "Detroit Pistons", weekday: "Sat" })],
+      pulls: [
+        pull({ id: 1, source: "seatdata", gameDate: "2026-10-10", etDate: "2026-10-01", pulledAt: "2026-10-01T16:00:00.000Z", median: 8 }),
+        pull({ id: 2, source: "seatdata", gameDate: "2026-10-10", etDate: "2026-10-08", pulledAt: "2026-10-08T16:00:00.000Z", median: 9 }),
+      ],
+      listings: [],
+      instantOffers: [
+        {
+          gameDate: "2026-10-10",
+          total: 26.6,
+          perTicket: 13.3,
+          observedAt: "2026-10-08T15:00:00.000Z",
+          note: null,
+        },
+      ],
+    });
+    const game = report.games.find((row) => row.date === "2026-10-10");
+    expect(game?.instantOffer).toEqual({ total: 26.6, perTicket: 13.3, seen: "2026-10-08" });
+    expect(game?.takeInstant).toBe(true);
+    expect(game?.projection.suggestion?.sentence).toMatch(/Take the instant offer/);
+    expect(game?.projection.suggestion?.sentence).toMatch(/\$26\.60/);
+    expect(game?.projection.suggestion?.sentence).toMatch(/Nothing is listed for you/);
+    expectPublic(report);
+    expect(JSON.stringify(report)).not.toContain("tm_instant_offer");
+  });
+});
+
 describe("trends route", () => {
   it("serves /api/trends without the export secret, and leaves /api/export locked", () => {
     const index = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
@@ -206,6 +239,9 @@ describe("trends route", () => {
     expect(index.slice(trendsAt, exportAt)).not.toContain("authorizeBearer");
     expect(index.slice(trendsAt, exportAt)).toContain("trendsResponse");
     expect(index.slice(exportAt, exportAt + 400)).toContain("authorizeBearer");
+    const offersAt = index.indexOf('"/api/instant-offers"');
+    expect(offersAt).toBeGreaterThan(exportAt);
+    expect(index.slice(offersAt, offersAt + 200)).toContain("instantOfferApiResponse");
 
     const handler = readFileSync(new URL("../worker/trends.ts", import.meta.url), "utf8");
     expect(handler).toContain("buildTrendsReport");

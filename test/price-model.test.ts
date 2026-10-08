@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parseInstantOffer } from "@shared/instant-offer";
 import {
   askOffers,
   calibrateSaleCurve,
@@ -12,6 +13,7 @@ import {
   MIN_SNAPSHOTS,
   modelExplainer,
   NOT_ENOUGH_DATA,
+  offersNearTip,
   planSeason,
   projectGame,
   SALE_PRIORS,
@@ -393,6 +395,96 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(fair).toBeGreaterThan(rich);
   });
 
+  it("reads a sell-now offer from the pair total or the per-ticket amount", () => {
+    const both = parseInstantOffer({ game: "2026-11-15", offeredTotal: "$26.60", perTicket: "13.30" });
+    expect(both.ok).toBe(true);
+    if (!both.ok) return;
+    expect(both.offer.total).toBe(26.6);
+    expect(both.offer.perTicket).toBe(13.3);
+
+    const pairOnly = parseInstantOffer({ game: "2026-11-15", offeredTotal: 26.6 });
+    expect(pairOnly.ok).toBe(true);
+    if (!pairOnly.ok) return;
+    expect(pairOnly.offer.perTicket).toBe(13.3);
+
+    const mismatch = parseInstantOffer({ game: "2026-11-15", offeredTotal: 26.6, perTicket: 20 });
+    expect(mismatch.ok).toBe(false);
+  });
+
+  it("treats an instant offer as a guaranteed floor near tip and as an anchor in the fit", () => {
+    const near = suggestListPrice({
+      predictedMedian: 40,
+      daysOut: 3,
+      supply: 8,
+      instantTotal: 500,
+      instantPerTicket: 250,
+    });
+    expect(near.takeInstant).toBe(true);
+    expect(near.ask).toBeNull();
+    expect(near.sentence).toMatch(/Take the instant offer/);
+    expect(near.sentence).toMatch(/\$500\.00/);
+    expect(near.sentence).toMatch(/Nothing is listed for you/);
+
+    const later = suggestListPrice({
+      predictedMedian: 40,
+      daysOut: 30,
+      supply: 8,
+      instantTotal: 500,
+      instantPerTicket: 250,
+    });
+    expect(later.takeInstant).toBe(false);
+    expect(later.ask).not.toBeNull();
+
+    const cleared = suggestListPrice({
+      predictedMedian: 200,
+      daysOut: 2,
+      supply: 4,
+      instantTotal: 50,
+      instantPerTicket: 25,
+    });
+    expect(cleared.takeInstant).toBe(false);
+    expect(cleared.expectedKeep ?? 0).toBeGreaterThanOrEqual(50);
+
+    const noPrice = offersNearTip([], 26.6, 2);
+    expect(noPrice.takeInstant).toBe(false);
+    expect(noPrice.offers).toEqual([]);
+
+    const rows: MarketRow[] = [];
+    const levels = [
+      { date: "2026-11-01", instant: 20, level: 4.9 },
+      { date: "2026-11-08", instant: 22, level: 4.95 },
+      { date: "2026-12-01", instant: 80, level: 5.45 },
+      { date: "2026-12-08", instant: 84, level: 5.5 },
+    ];
+    for (const game of levels) {
+      for (let day = 0; day < 8; day += 1) {
+        rows.push({
+          gameDate: game.date,
+          snapshotDate: addDays("2026-08-01", day),
+          daysOut: 40 + day,
+          median: Math.exp(game.level),
+          tier: "standard",
+          weekend: false,
+          nationalTv: false,
+          winRate: 0.5,
+          supply: 6,
+          instantPerTicket: game.instant,
+        });
+      }
+    }
+    const fit = fitMarketModel(rows, "2026-10-01", { knots: [7, 21, 45, 90] });
+    expect(fit.ok).toBe(true);
+    if (!fit.ok) return;
+    expect(fit.terms).toContain("logInstant");
+    const weight = fit.beta[fit.terms.indexOf("logInstant")] ?? 0;
+    expect(weight).toBeGreaterThan(0);
+    const lifted = projectGame(
+      fit,
+      query({ gameDate: "2026-11-01", daysOut: 20, snapshots: 8, liveMedian: null, instantPerTicket: 200 }),
+    );
+    expect(lifted.todayPrice).toBeGreaterThanOrEqual(210);
+  });
+
   it("explains the model without technical jargon", () => {
     const note = modelExplainer();
     expect(note).toMatch(/early estimate/i);
@@ -402,6 +494,8 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(note).toMatch(/\$6,000/);
     expect(note).toMatch(/15%/);
     expect(note).toMatch(/possible sale/i);
+    expect(note).toMatch(/instant offer/i);
+    expect(note).toMatch(/take the instant offer/i);
     expect(note).toMatch(/Nothing is listed for you/);
     expect(note).not.toMatch(/regression|spline|logit|logistic|bayes|hierarchical|coefficient|prior|empirical/i);
   });
@@ -426,5 +520,14 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(salesStore).not.toMatch(/UPDATE likely_sales|DELETE FROM likely_sales/i);
     expect(schema).toContain("LIKELY_SALES_DDL");
     expect(schema).not.toMatch(/UPDATE likely_sales|DELETE FROM likely_sales/i);
+
+    const offerMigration = readFileSync(new URL("../migrations/0006_instant_offers.sql", import.meta.url), "utf8");
+    const offerStore = readFileSync(new URL("../worker/instant-offers.ts", import.meta.url), "utf8");
+    expect(offerMigration).toContain("CREATE TABLE IF NOT EXISTS instant_offers");
+    expect(offerMigration).toContain("tm_instant_offer");
+    expect(offerMigration).not.toMatch(/UPDATE |DELETE /i);
+    expect(offerStore).toContain("INSERT INTO instant_offers");
+    expect(offerStore).not.toMatch(/UPDATE instant_offers|DELETE FROM instant_offers/i);
+    expect(schema).toContain("INSTANT_OFFER_DDL");
   });
 });
