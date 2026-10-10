@@ -1,4 +1,5 @@
-import { authorizeBearer } from "../src/shared/guardrails";
+import { priceBook } from "../src/shared/book-pricing";
+import { authorizeBearer, etDateFrom } from "../src/shared/guardrails";
 import { adminStatusResponse } from "./admin-status";
 import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
@@ -30,8 +31,9 @@ export default {
     }
 
     if (url.pathname === "/api/book" && request.method === "GET") {
-      const book = await loadLiveBook(env);
-      return Response.json(book);
+      // Re-price on every read so keep amounts and days-out match today.
+      const book = priceBook(await loadLiveBook(env), etDateFrom(new Date()));
+      return Response.json(book, { headers: { "Cache-Control": "no-store" } });
     }
 
     if (url.pathname === "/api/trends" && request.method === "GET") {

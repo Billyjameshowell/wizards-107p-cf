@@ -4,6 +4,7 @@ import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@s
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { SeatPrice } from "@/components/SeatPrice";
+import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
 import {
   readPriceOverrides,
   writePriceOverrides,
@@ -115,6 +116,29 @@ function PreseasonMark({ type }: { type: string }) {
   return (
     <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-navy">
       Preseason
+    </span>
+  );
+}
+
+function StatusBadge({ status, game }: { status: ListingOverride; game: Game }) {
+  if (status.sold) {
+    const total = soldKeepTotalOf({ sold: true, sold_keep_total: game.sold_keep_total });
+    return (
+      <span className="rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
+        Sold{total != null ? ` · ${formatMoney(total)} in` : ""}
+      </span>
+    );
+  }
+  if (!status.listed) return null;
+  const price =
+    status.listed_ask != null && status.listed_ask > 0
+      ? ` · $${status.listed_ask}/seat`
+      : game.listed_buyer_price != null && game.listed_buyer_price > 0
+        ? ` · buyer sees $${game.listed_buyer_price}`
+        : "";
+  return (
+    <span className="rounded-full bg-navy px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
+      Listed{price}
     </span>
   );
 }
@@ -293,6 +317,7 @@ function GameCard({
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <DaysOut date={game.date} todayEt={todayEt} />
           <PreseasonMark type={game.type} />
+          <StatusBadge status={status} game={game} />
           <a
             href={`/trends/${game.date}`}
             className="text-sm font-semibold text-navy underline underline-offset-2"
@@ -376,18 +401,22 @@ export function TicketBook({
   const priced = useMemo(
     () =>
       games.map((game) => {
-        const view = seatPriceForGame(game, overrides[game.date] ?? null, todayEt);
+        const status = mergeGameStatus(game, repoStatus, localStatus);
+        const live = { ...game, listed: status.listed, sold: status.sold, listed_ask: status.listed_ask };
+        const view = seatPriceForGame(game, startingTypeIn(live, overrides[game.date] ?? null), todayEt);
+        const soldTotal = soldKeepTotalOf(live);
         return {
           source: game,
           view,
+          soldTotal,
           priced: {
             ...game,
-            advised_ask: view.keep,
-            cash_both_after_fee: view.pair,
+            advised_ask: soldTotal != null ? soldTotal / 2 : live.sold ? null : view.keep,
+            cash_both_after_fee: soldTotal != null ? soldTotal : live.sold ? null : view.pair,
           },
         };
       }),
-    [games, overrides, todayEt],
+    [games, overrides, todayEt, repoStatus, localStatus],
   );
 
   const summary = useMemo(
@@ -397,6 +426,12 @@ export function TicketBook({
       book.season_cost,
     ),
     [priced, scenario, book.season_cost],
+  );
+
+  // Season cash is money already in from sold pairs; the Sell plan adds the rest.
+  const banked = useMemo(
+    () => Math.round(priced.reduce((sum, item) => sum + (item.soldTotal ?? 0), 0) * 100) / 100,
+    [priced],
   );
 
   const rows = useMemo(
@@ -498,9 +533,9 @@ export function TicketBook({
     (row) => row.game.sit_or_sell === "Sell" && row.view.typeIn == null,
   ).length;
   const cashLine =
-    summary.sellCash === 0
+    banked === 0
       ? `Nothing in yet toward ${formatMoney(book.season_cost)}`
-      : `${formatMoney(summary.sellCash)} toward ${formatMoney(book.season_cost)}`;
+      : `${formatMoney(banked)} in toward ${formatMoney(book.season_cost)}`;
 
   const emptyMessage =
     visible.length === 0 ? (
@@ -552,7 +587,11 @@ export function TicketBook({
           <p className="text-sm leading-snug text-[#3d4654]">
             <span className="text-lg font-bold tabular-nums text-navy">{cashLine}</span>
             {summary.sellCash > 0 ? (
-              <span className="text-muted-foreground"> · {formatShortfall(summary.vsSeason, book.season_cost)}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                · about {formatMoney(summary.sellCash)} with the Sell games at these prices ·{" "}
+                {formatShortfall(summary.vsSeason, book.season_cost)}
+              </span>
             ) : null}
           </p>
           {nextGame ? (
@@ -774,7 +813,8 @@ export function TicketBook({
                     </TableCell>
                     <TableCell>
                       <span className="font-semibold text-navy">{game.opponent}</span>{" "}
-                      <PreseasonMark type={game.type} />
+                      <PreseasonMark type={game.type} />{" "}
+                      <StatusBadge status={status} game={game} />
                       <a
                         href={`/trends/${game.date}`}
                         className="mt-1 block text-sm font-semibold text-navy underline underline-offset-2"

@@ -9,7 +9,8 @@ import {
   orderGamesForCompPull,
   type CompObservation,
 } from "@shared/price-history";
-import { resolveSeatPrice, seriousCompMedian, suggestFromMedian } from "@shared/pricing";
+import { resolveSeatPrice, seatPriceForGame, seriousCompMedian, suggestFromMedian } from "@shared/pricing";
+import { etDateFrom } from "@shared/guardrails";
 import { prioritizeDates } from "../worker/adapters/seatdata";
 import { mergeBook } from "../worker/ingest";
 
@@ -398,7 +399,9 @@ describe("mergeBook", () => {
     expect(row?.comp_snapshot_median).toBe(140);
     expect(row?.market_median).toBe(40);
     expect(row?.market_get_in).toBe(30);
-    expect(row?.advised_ask).toBeNull();
+    // Keep per seat follows the blended band middle, not the arena median.
+    expect(row?.advised_ask).toBe(keepFromTypeIn(seatPriceForGame(row!, null, etDateFrom(NOW)).typeIn!));
+    expect(row?.cash_both_after_fee).toBe(pairFromTypeIn(seatPriceForGame(row!, null, etDateFrom(NOW)).typeIn!));
     expect(row?.notes).toBe("keep me");
     expect(row?.sit_or_sell).toBe("Sell");
     expect(row?.comp_checked_at).toBe(NOW.toISOString());
@@ -419,7 +422,9 @@ describe("mergeBook", () => {
     expect(next.games[0]?.comp_median).toBe(180);
     expect(next.games[0]?.comp_held_prior).toBe(true);
     expect(next.games[0]?.comp_excluded_dump).toBe(true);
-    expect(next.games[0]?.advised_ask).toBeNull();
+    expect(next.games[0]?.advised_ask).toBe(
+      seatPriceForGame(next.games[0]!, null, etDateFrom(NOW)).keep,
+    );
   });
 
   it("does not let Apify replace a comp middle", () => {
