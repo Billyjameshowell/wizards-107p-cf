@@ -131,6 +131,7 @@ export function toSeed(game: Game): TrendsGameSeed {
     sitOrSell: game.sit_or_sell,
     sold: game.sold,
     listedAsk: game.listed_ask,
+    soldKeepTotal: game.sold_keep_total ?? null,
   };
 }
 

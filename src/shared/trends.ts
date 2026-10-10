@@ -96,6 +96,8 @@ export type TrendsGameSeed = {
   sitOrSell?: string;
   sold?: boolean;
   listedAsk?: number | null;
+  /** What the sold pair actually brought after fees. */
+  soldKeepTotal?: number | null;
 };
 
 export type TrendPoint = {
@@ -642,7 +644,13 @@ function assembleTrends(input: {
       projection: daysOut == null ? emptyProjection() : emptyProjection(NOT_ENOUGH_DATA),
       sitOrSell: seed.sitOrSell ?? "",
       sold: seed.sold === true,
-      banked: seed.sold && seed.listedAsk != null && seed.listedAsk > 0 ? pairFromTypeIn(seed.listedAsk) : 0,
+      banked: !seed.sold
+        ? 0
+        : seed.soldKeepTotal != null && seed.soldKeepTotal >= 0
+          ? seed.soldKeepTotal
+          : seed.listedAsk != null && seed.listedAsk > 0
+            ? pairFromTypeIn(seed.listedAsk)
+            : 0,
       offers: [],
       instantOffer: loggedFloor(input.instantOffers ?? [], seed.date, input.today),
       takeInstant: false,

@@ -30,8 +30,17 @@ export type Game = {
   /** "bigger" | "soft" | "standard" when a game is actually marked. Absent means no tier. */
   demand?: string | null;
   listed: boolean;
+  /** Per-seat "Set Your Price" he typed on the listing (he keeps 95%). */
   listed_ask: number | null;
+  /** Buyer-facing price when that is all the listing email shows. */
+  listed_buyer_price?: number | null;
   sold: boolean;
+  /** What he actually keeps for the pair after fees, from the sold email. */
+  sold_keep_total?: number | null;
+  /** ISO time of the sale. */
+  sold_at?: string | null;
+  /** Ticketmaster order number. */
+  sold_order?: string | null;
   notes: string;
   ticketdata_url: string | null;
   market_get_in?: number | null;
@@ -50,7 +59,10 @@ export type Game = {
 
 export type Book = {
   asof_et: string;
+  /** Cash already in: what he keeps from sold pairs. */
   sell_book_cash: number;
+  /** Cash in plus what the unsold Sell games bring at their current prices. */
+  planned_sell_cash?: number;
   vs_6k: number;
   season_cost: number;
   section: string;

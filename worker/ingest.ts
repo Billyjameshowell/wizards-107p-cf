@@ -1,5 +1,6 @@
 import type { ObservedPull } from "../src/shared/archive";
 import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
+import { priceBook } from "../src/shared/book-pricing";
 import { etDateFrom, parseFlags, type Flags, type SpendState } from "../src/shared/guardrails";
 import {
   blendCompHistory,
@@ -175,12 +176,15 @@ export function mergeBook(
   const games = book.games.map((game) =>
     applyPoints(game, byDate.get(game.date) ?? [], history, now, etDate),
   );
-  return recomputeBookTotals({
-    ...book,
-    games,
-    asof_et: formatEtStamp(now),
-    list_nothing_until_billy_says: true,
-  });
+  return priceBook(
+    recomputeBookTotals({
+      ...book,
+      games,
+      asof_et: formatEtStamp(now),
+      list_nothing_until_billy_says: true,
+    }),
+    etDate,
+  );
 }
 
 function flagsFromEnv(env: Env): Flags {
