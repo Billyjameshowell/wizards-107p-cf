@@ -2,6 +2,7 @@ import { bookPullInstants, ingestStatusWarnings, latestInstant } from "../src/sh
 import { formatEtStamp } from "../src/shared/book";
 import { authorizeBearer, parseFlags, timingSafeEqual } from "../src/shared/guardrails";
 import { ensureArchive } from "./archive-store";
+import { latestSavedModel, prepareModelFit } from "./model-fit";
 import { readBook } from "./store";
 
 const HEADERS = {
@@ -10,6 +11,28 @@ const HEADERS = {
   "X-Robots-Tag": "noindex, nofollow",
   "Referrer-Policy": "no-referrer",
 };
+
+function modelErrorText(
+  model:
+    | {
+        fittedAt: string | null;
+        rows: number | null;
+        early: boolean | null;
+        holdoutMedianAbsPercent: number | null;
+      }
+    | null
+    | undefined,
+): string {
+  if (!model) return "No saved fit yet. The next morning check will store one.";
+  const miss =
+    model.holdoutMedianAbsPercent == null
+      ? "not enough checks to score the next price yet"
+      : `${model.holdoutMedianAbsPercent}% median miss on the next price check`;
+  const rows = model.rows == null ? "unknown" : String(model.rows);
+  const stage = model.early ? "early estimate" : "past the early-data bar";
+  const saved = model.fittedAt ? ` Saved ${formatEtStamp(new Date(model.fittedAt))} ET.` : "";
+  return escapeHtml(`${miss}. ${rows} cleaned checks. ${stage}.${saved}`);
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -44,11 +67,37 @@ export function renderAdminStatusPage(args: {
   lastAttemptAt?: string | null;
   seatdataKey: boolean;
   apifyToken: boolean;
+  offerSaved?: boolean;
+  games?: readonly { date: string; opponent: string }[];
+  offers?: readonly { gameDate: string; total: number; perTicket: number; observedAt: string; note: string | null }[];
+  model?: {
+    fittedAt: string | null;
+    rows: number | null;
+    early: boolean | null;
+    holdoutMedianAbsPercent: number | null;
+  } | null;
 }): string {
   const last = args.lastPullAt ? formatEtStamp(new Date(args.lastPullAt)) : "none";
   const attempt = args.lastAttemptAt ? formatEtStamp(new Date(args.lastAttemptAt)) : "none";
   const banners = args.warnings
     .map((warning) => `<p class="warn" role="alert">${escapeHtml(warning)}</p>`)
+    .join("");
+  const games = args.games ?? [];
+  const options = games
+    .map(
+      (game) =>
+        `<option value="${escapeHtml(game.date)}">${escapeHtml(game.date)} ${escapeHtml(game.opponent)}</option>`,
+    )
+    .join("");
+  const saved = args.offerSaved ? `<p class="saved">Instant offer saved. Nothing was listed.</p>` : "";
+  const logged = (args.offers ?? [])
+    .slice()
+    .reverse()
+    .slice(0, 12)
+    .map(
+      (offer) =>
+        `<li>${escapeHtml(offer.gameDate)}: ${escapeHtml(offer.total.toFixed(2))} for the pair (${escapeHtml(offer.perTicket.toFixed(2))} a seat)${offer.note ? `, ${escapeHtml(offer.note)}` : ""}</li>`,
+    )
     .join("");
   return `<!doctype html>
 <html lang="en">
@@ -63,6 +112,11 @@ export function renderAdminStatusPage(args: {
     .warn { background: #fff4d6; border: 1px solid #8a4b00; border-radius: 8px; padding: 12px 14px; margin: 0 0 12px; }
     dt { font-weight: 650; }
     dd { margin: 0 0 8px; }
+    form { display: grid; gap: 10px; margin-top: 8px; }
+    label { display: grid; gap: 4px; font-weight: 650; }
+    input, select { font: inherit; padding: 8px; }
+    button { font: inherit; padding: 8px 12px; }
+    .saved { background: #e7f6ea; border: 1px solid #1f5c32; border-radius: 8px; padding: 12px 14px; }
   </style>
 </head>
 <body>
@@ -77,7 +131,25 @@ export function renderAdminStatusPage(args: {
     <dt>SeatData key</dt><dd>${args.seatdataKey ? "set" : "missing"}</dd>
     <dt>Apify token</dt><dd>${args.apifyToken ? "set" : "missing"}</dd>
     <dt>Caps</dt><dd>SeatData 20 per run, 25 per ET day. Apify $0.50 and 50 events. Listings off.</dd>
+    <dt>Next-check error</dt><dd>${modelErrorText(args.model)}</dd>
   </dl>
+  <h2>Instant offer</h2>
+  ${saved}
+  <p>Log the sell-now offer for a game, such as Get Paid $26.60 ($13.30 per ticket). Enter the pair total, the per-ticket amount, or both. Saving does not list anything.</p>
+  <form method="post" action="/admin/instant-offer">
+    <label>Game
+      ${
+        options
+          ? `<select name="game" required>${options}</select>`
+          : `<input name="game" required pattern="\\d{4}-\\d{2}-\\d{2}" placeholder="2026-11-15">`
+      }
+    </label>
+    <label>Get paid, both tickets <input name="offered_total" inputmode="decimal" placeholder="26.60"></label>
+    <label>Per ticket <input name="per_ticket" inputmode="decimal" placeholder="13.30"></label>
+    <label>Note <input name="note" maxlength="200"></label>
+    <button type="submit">Save instant offer</button>
+  </form>
+  ${logged ? `<ul>${logged}</ul>` : ""}
 </body>
 </html>`;
 }
@@ -161,6 +233,32 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
     lastPullAt,
     now,
   });
+  const savedModel = await latestSavedModel(env);
+  let model = savedModel;
+  if (model?.holdoutMedianAbsPercent == null) {
+    try {
+      const scored = await prepareModelFit(env, "admin", now);
+      if (scored) {
+        model = {
+          fittedAt: savedModel?.fittedAt ?? null,
+          version: scored.version,
+          rows: scored.rows,
+          early: scored.early === 1,
+          holdoutMedianAbsPercent: scored.holdoutMedianAbsPercent,
+        };
+      }
+    } catch (error) {
+      console.error("price model score", error);
+    }
+  }
+  const offerSaved = new URL(request.url).searchParams.get("offer") === "saved";
+  let offers: { gameDate: string; total: number; perTicket: number; observedAt: string; note: string | null }[] = [];
+  try {
+    const { loadInstantOffers } = await import("./instant-offers");
+    offers = await loadInstantOffers(env);
+  } catch (error) {
+    console.error("instant offers", error);
+  }
   const html = renderAdminStatusPage({
     warnings,
     ingestEnabled: flags.ingestEnabled,
@@ -169,6 +267,10 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
     lastAttemptAt,
     seatdataKey: Boolean(env.SEATDATA_API_KEY?.trim()),
     apifyToken: Boolean(env.APIFY_TOKEN?.trim()),
+    offerSaved,
+    games: (book?.games ?? []).map((game) => ({ date: game.date, opponent: game.opponent })),
+    offers,
+    model,
   });
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers: HEADERS });
 }

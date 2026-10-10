@@ -42,6 +42,9 @@ export type Game = {
     get_in?: number | null;
     median?: number | null;
     mean?: number | null;
+    /** Similar-seat middle on books saved before comp_median was written. */
+    zone_median?: number | null;
+    zone_comp_count?: number | null;
   } | null;
 };
 

@@ -345,13 +345,19 @@ export function compMedianOf(game: Game): number | null {
     moneyField(game.comp_median) ??
     moneyField(gameRecord(game).compMedian) ??
     moneyField(details?.comp_median) ??
-    moneyField(details?.compMedian)
+    moneyField(details?.compMedian) ??
+    moneyField(details?.zone_median)
   );
 }
 
 export function compCountOf(game: Game): number | null {
   const details = detailRecord(game);
-  const raw = game.comp_count ?? gameRecord(game).compCount ?? details?.comp_count ?? details?.compCount;
+  const raw =
+    game.comp_count ??
+    gameRecord(game).compCount ??
+    details?.comp_count ??
+    details?.compCount ??
+    details?.zone_comp_count;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return null;
   return raw;
 }

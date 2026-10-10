@@ -186,3 +186,7 @@
 .ticket-table tbody tr[data-tone="tbd"] td:first-child {
   background-color: var(--color-tbd);
 }
+
+.trends-table tbody td:first-child {
+  background-color: var(--color-card);
+}

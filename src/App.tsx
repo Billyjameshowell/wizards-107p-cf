@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
 import type { Book } from "@shared/book";
 import { TicketBook } from "./components/TicketBook.tsx";
+import { TrendsPage } from "./components/TrendsPage.tsx";
+
+function isTrendsPath(): boolean {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  return path === "/trends" || path.startsWith("/trends/");
+}
 
 export default function App() {
+  if (isTrendsPath()) return <TrendsPage />;
+  return <BookApp />;
+}
+
+function BookApp() {
   const [book, setBook] = useState<Book | null>(null);
   const [error, setError] = useState<string | null>(null);
 

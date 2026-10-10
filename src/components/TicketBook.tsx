@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SearchIcon, XIcon } from "lucide-react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
@@ -30,8 +31,10 @@ import {
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
 import { MAX_TABLE_SCALE, MIN_TABLE_SCALE, stepTableScale } from "@/lib/table-zoom";
 import { usePinchZoom } from "@/lib/use-pinch-zoom";
+import { gameMatchesQuery } from "@/lib/game-search";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import {
   Table,
   TableBody,
@@ -290,6 +293,12 @@ function GameCard({
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <DaysOut date={game.date} todayEt={todayEt} />
           <PreseasonMark type={game.type} />
+          <a
+            href={`/trends/${game.date}`}
+            className="text-sm font-semibold text-navy underline underline-offset-2"
+          >
+            Price trend
+          </a>
         </div>
         <div className="mt-2.5">
           <ScenarioToggle wide value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
@@ -353,6 +362,7 @@ export function TicketBook({
   const [scenario, setScenario] = useState<ScenarioMap>(() => readScenario());
   const [overrides, setOverrides] = useState<PriceOverrideMap>(() => readPriceOverrides());
   const [filter, setFilter] = useState<FilterId>("all");
+  const [query, setQuery] = useState("");
   const [copyLabel, setCopyLabel] = useState("Copy status");
   const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
   const { scale, setScale, bind } = usePinchZoom();
@@ -401,15 +411,25 @@ export function TicketBook({
 
   const visible = useMemo(() => {
     const filtered = rows.filter(({ game, status }) => {
-      if (filter === "sit") return game.sit_or_sell === "Sit";
-      if (filter === "sell") return game.sit_or_sell === "Sell";
-      if (filter === "listed") return status.listed;
-      if (filter === "sold") return status.sold;
-      if (filter === "not-listed") return !status.listed && !status.sold;
-      return true;
+      if (filter === "sit" && game.sit_or_sell !== "Sit") return false;
+      if (filter === "sell" && game.sit_or_sell !== "Sell") return false;
+      if (filter === "listed" && !status.listed) return false;
+      if (filter === "sold" && !status.sold) return false;
+      if (filter === "not-listed" && (status.listed || status.sold)) return false;
+      return gameMatchesQuery(
+        {
+          date: game.date,
+          weekday: game.weekday,
+          opponent: game.opponent,
+          type: game.type,
+          notes: status.notes || game.notes,
+          sitOrSell: game.sit_or_sell,
+        },
+        query,
+      );
     });
     return sortGameRows(filtered, sort);
-  }, [rows, filter, sort]);
+  }, [rows, filter, sort, query]);
 
   const centralLabel = centralColumnLabel(visible.map((row) => row.game));
 
@@ -494,7 +514,13 @@ export function TicketBook({
           <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
             Capital One Arena · Section {book.section} Row {book.row} · seats {book.seats.join("–")}
           </p>
-          <nav aria-label="Site" className="shrink-0">
+          <nav aria-label="Site" className="flex shrink-0 items-center gap-1">
+            <a
+              href="/trends"
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-[#f3e6c8] underline decoration-[#f3e6c8]/70 underline-offset-4"
+            >
+              Trends
+            </a>
             <a
               href="/admin"
               className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-[#f3e6c8] underline decoration-[#f3e6c8]/70 underline-offset-4"
@@ -582,6 +608,34 @@ export function TicketBook({
             Reset Sit and Sell
           </Button>
         </div>
+      </div>
+
+      <div role="search" className="mb-3">
+        <InputGroup className="h-11 min-h-11 bg-background">
+          <InputGroupAddon align="inline-start" className="pl-3">
+            <SearchIcon />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search games (team, date, notes)"
+            aria-label="Search games"
+            className="h-11 text-base md:text-sm [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+          />
+          {query ? (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                aria-label="Clear search"
+                size="icon-sm"
+                className="size-11"
+                onClick={() => setQuery("")}
+              >
+                <XIcon />
+              </InputGroupButton>
+            </InputGroupAddon>
+          ) : null}
+        </InputGroup>
       </div>
 
       <div
@@ -721,6 +775,12 @@ export function TicketBook({
                     <TableCell>
                       <span className="font-semibold text-navy">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />
+                      <a
+                        href={`/trends/${game.date}`}
+                        className="mt-1 block text-sm font-semibold text-navy underline underline-offset-2"
+                      >
+                        Price trend
+                      </a>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatType(game.type)}</TableCell>
                     <TableCell className="text-muted-foreground">{game.time_et}</TableCell>

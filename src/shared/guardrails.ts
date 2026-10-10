@@ -20,6 +20,8 @@ export type Flags = {
   apifyMaxTotalChargeUsd: number;
   apifyMaxEvents: number;
   seatdataBaseUrl: string;
+  /** Recent sale rows. Off unless set. A response with rows spends one pull. */
+  seatdataFetchSales: boolean;
   apifyActor: ApifyActorId;
   /** Optional build tag/number to pin (e.g. "0.1.72"). Empty means the actor default. */
   apifyActorBuild: string | null;
@@ -187,6 +189,7 @@ export function parseFlags(env: object): Flags {
       /\/$/,
       "",
     ),
+    seatdataFetchSales: parseBooleanFlag(readEnvString(env, "SEATDATA_FETCH_SALES"), false),
     apifyActor: parseApifyActor(readEnvString(env, "APIFY_ACTOR")),
     apifyActorBuild: parseApifyBuild(readEnvString(env, "APIFY_ACTOR_BUILD")),
     apifyInputOverride: parseApifyInputOverride(readEnvString(env, "APIFY_INPUT_JSON")),
