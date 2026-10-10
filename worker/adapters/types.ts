@@ -1,3 +1,4 @@
+import type { SpendState } from "../../src/shared/guardrails";
 import type { Game } from "../../src/shared/book";
 
 export type MarketPoint = {
@@ -25,6 +26,8 @@ export type AdapterContext = {
   env: Env;
   games: Game[];
   now: Date;
+  /** Persist spend mid-run so a crash (e.g. CPU limit) cannot lose paid-pull counts. */
+  saveSpend?: (spend: SpendState) => Promise<void>;
 };
 
 export function dateFromLocal(value: string | undefined): string | null {

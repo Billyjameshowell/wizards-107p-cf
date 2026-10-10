@@ -110,6 +110,8 @@ Flags are Worker **vars** in `wrangler.jsonc`. `npm run deploy` uploads that fil
 | `SEATDATA_MAX_PULLS_PER_ET_DAY` | `25` | Cannot be raised past 25 |
 | `APIFY_MAX_TOTAL_CHARGE_USD` | `0.50` | Cannot be raised past $0.50 |
 | `APIFY_MAX_EVENTS` | `50` | Cannot be raised past 50 |
+| `APIFY_ACTOR` | `ahmed_jasarevic~seatgeek-scraper` | Default is SeatGeek Platform API price stats. Allow-listed alternate: `lentic_clockss~seatgeek-scraper`. Anything else falls back to the default |
+| `APIFY_ACTOR_BUILD` | empty | Optional build tag/number to pin (e.g. `0.1.72`) when the actor's latest build breaks |
 
 `.dev.vars.example` sets the two local overrides to off. Copy it to `.dev.vars` (gitignored). That file does not affect production.
 

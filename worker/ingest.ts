@@ -1,6 +1,6 @@
 import type { ObservedPull } from "../src/shared/archive";
 import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
-import { etDateFrom, parseFlags, type Flags } from "../src/shared/guardrails";
+import { etDateFrom, parseFlags, type Flags, type SpendState } from "../src/shared/guardrails";
 import {
   blendCompHistory,
   mergeToday,
@@ -279,7 +279,12 @@ async function runIngestOnce(
     };
   }
 
-  const ctx = { env, games: book.games, now };
+  const ctx = {
+    env,
+    games: book.games,
+    now,
+    saveSpend: (next: SpendState) => writeSpend(env, next),
+  };
   const archives: { source: string; rows: ObservedPull[] }[] = [];
   let certainSales: Awaited<ReturnType<typeof runSeatData>>["sales"] = [];
 

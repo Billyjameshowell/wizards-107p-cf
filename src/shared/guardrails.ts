@@ -22,7 +22,39 @@ export type Flags = {
   seatdataBaseUrl: string;
   /** Recent sale rows. Off unless set. A response with rows spends one pull. */
   seatdataFetchSales: boolean;
+  apifyActor: ApifyActorId;
+  /** Optional build tag/number to pin (e.g. "0.1.72"). Empty means the actor default. */
+  apifyActorBuild: string | null;
+  /**
+   * Optional search-filter override for the SeatGeek API actor (APIFY_INPUT_JSON),
+   * so the query can be tuned without a deploy. Only filter keys are kept; the
+   * event cap (maxItems) always comes from apifyMaxEvents.
+   */
+  apifyInputOverride: Record<string, unknown> | null;
 };
+
+/**
+ * Apify actors the adapter knows how to call and read. Anything else in env
+ * falls back to the default so a typo cannot point spend at an unknown actor.
+ */
+export const APIFY_ACTORS = [
+  "lentic_clockss~seatgeek-scraper",
+  "ahmed_jasarevic~seatgeek-scraper",
+] as const;
+export type ApifyActorId = (typeof APIFY_ACTORS)[number];
+export const DEFAULT_APIFY_ACTOR: ApifyActorId = "ahmed_jasarevic~seatgeek-scraper";
+
+export function parseApifyActor(value: string | undefined): ApifyActorId {
+  const normalized = (value ?? "").trim().replace("/", "~");
+  return (APIFY_ACTORS as readonly string[]).includes(normalized)
+    ? (normalized as ApifyActorId)
+    : DEFAULT_APIFY_ACTOR;
+}
+
+export function parseApifyBuild(value: string | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return /^[A-Za-z0-9._-]{1,40}$/.test(trimmed) ? trimmed : null;
+}
 
 export type SourceSpend = {
   paidAttemptsToday: number;
@@ -153,12 +185,52 @@ export function parseFlags(env: object): Flags {
         HARD_CAPS.apifyMaxEvents,
       ),
     ),
-    seatdataBaseUrl: (readEnvString(env, "SEATDATA_BASE_URL") ?? "https://api.seatdata.io").replace(
+    seatdataBaseUrl: (readEnvString(env, "SEATDATA_BASE_URL") ?? "https://seatdata.io").replace(
       /\/$/,
       "",
     ),
     seatdataFetchSales: parseBooleanFlag(readEnvString(env, "SEATDATA_FETCH_SALES"), false),
+    apifyActor: parseApifyActor(readEnvString(env, "APIFY_ACTOR")),
+    apifyActorBuild: parseApifyBuild(readEnvString(env, "APIFY_ACTOR_BUILD")),
+    apifyInputOverride: parseApifyInputOverride(readEnvString(env, "APIFY_INPUT_JSON")),
   };
+}
+
+const APIFY_INPUT_ARRAY_KEYS = [
+  "searchQueries",
+  "performerSlugs",
+  "performerIds",
+  "venueIds",
+  "taxonomyIds",
+] as const;
+const APIFY_INPUT_STRING_KEYS = ["venueCity", "venueState", "venueCountry", "dateFrom", "dateTo"] as const;
+const APIFY_SORTS = ["datetime_utc.asc", "datetime_utc.desc", "popularity.asc", "popularity.desc"];
+
+/** Filter keys only, with simple types; anything else (including maxItems) is dropped. */
+export function parseApifyInputOverride(value: string | undefined): Record<string, unknown> | null {
+  if (!value || !value.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const src = parsed as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of APIFY_INPUT_ARRAY_KEYS) {
+    const v = src[key];
+    if (Array.isArray(v) && v.length <= 20 && v.every((x) => typeof x === "string" && x.length <= 100)) {
+      out[key] = v;
+    }
+  }
+  for (const key of APIFY_INPUT_STRING_KEYS) {
+    const v = src[key];
+    if (typeof v === "string" && v.length <= 100) out[key] = v;
+  }
+  if (typeof src.onlyOpen === "boolean") out.onlyOpen = src.onlyOpen;
+  if (typeof src.sort === "string" && APIFY_SORTS.includes(src.sort)) out.sort = src.sort;
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 export function etDateFrom(now: Date): string {
@@ -241,17 +313,53 @@ export function canTakeSeatDataPull(args: {
   return { ok: true };
 }
 
-export function apifyActorInput(flags: Flags): {
+export type LenticSeatGeekInput = {
   mode: "performer";
   performerSlug: string;
   maxResults: number;
+  maxPages: number;
   includeListings: boolean;
   enrichDetails: boolean;
-} {
+};
+
+export type AhmedSeatGeekInput = {
+  performerSlugs: string[];
+  searchQueries: string[];
+  /** Home games only: Capital One Arena is in Washington, DC. Keeps away games from using the event cap. */
+  venueCity: string;
+  venueState: string;
+  onlyOpen: boolean;
+  sort: "datetime_utc.asc";
+  maxItems: number;
+};
+
+export const WIZARDS_SEATGEEK_SLUG = "washington-wizards";
+
+/** Actor input for the Wizards schedule. Event count is always the capped apifyMaxEvents. */
+export function apifyActorInput(flags: Flags): LenticSeatGeekInput | AhmedSeatGeekInput {
+  if (flags.apifyActor === "ahmed_jasarevic~seatgeek-scraper") {
+    const base: AhmedSeatGeekInput = {
+      performerSlugs: [WIZARDS_SEATGEEK_SLUG],
+      searchQueries: [],
+      venueCity: "Washington",
+      venueState: "DC",
+      onlyOpen: true,
+      sort: "datetime_utc.asc",
+      maxItems: flags.apifyMaxEvents,
+    };
+    if (!flags.apifyInputOverride) return base;
+    // An override replaces the filters; the event cap is never overridable.
+    return {
+      ...flags.apifyInputOverride,
+      searchQueries: (flags.apifyInputOverride.searchQueries as string[] | undefined) ?? [],
+      maxItems: flags.apifyMaxEvents,
+    } as AhmedSeatGeekInput;
+  }
   return {
     mode: "performer",
-    performerSlug: "washington-wizards",
+    performerSlug: WIZARDS_SEATGEEK_SLUG,
     maxResults: flags.apifyMaxEvents,
+    maxPages: 3,
     includeListings: flags.apifyIncludeListings === true,
     enrichDetails: false,
   };
