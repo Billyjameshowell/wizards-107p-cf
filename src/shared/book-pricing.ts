@@ -8,13 +8,15 @@ export function soldKeepTotalOf(game: Pick<Game, "sold" | "sold_keep_total">): n
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? roundMoney(value) : null;
 }
 
-/** The type-in the price view should start from: his saved one, else his live listing. */
+/** The type-in the price view should start from: his saved one, else his listing (live or sold). */
 export function startingTypeIn(
-  game: Pick<Game, "listed" | "listed_ask">,
+  game: Pick<Game, "listed" | "listed_ask"> & { sold?: boolean },
   savedTypeIn: number | null,
 ): number | null {
   if (savedTypeIn != null && savedTypeIn > 0) return savedTypeIn;
-  if (game.listed && typeof game.listed_ask === "number" && game.listed_ask > 0) return game.listed_ask;
+  if ((game.listed || game.sold === true) && typeof game.listed_ask === "number" && game.listed_ask > 0) {
+    return game.listed_ask;
+  }
   return null;
 }
 

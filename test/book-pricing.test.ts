@@ -76,6 +76,7 @@ describe("helpers", () => {
     expect(startingTypeIn({ listed: true, listed_ask: 83 }, 90)).toBe(90);
     expect(startingTypeIn({ listed: true, listed_ask: 83 }, null)).toBe(83);
     expect(startingTypeIn({ listed: false, listed_ask: 83 }, null)).toBeNull();
+    expect(startingTypeIn({ listed: false, sold: true, listed_ask: 30 }, null)).toBe(30);
     expect(soldKeepTotalOf({ sold: false, sold_keep_total: 57 })).toBeNull();
     expect(soldKeepTotalOf({ sold: true, sold_keep_total: 57 })).toBe(57);
   });
