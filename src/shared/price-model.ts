@@ -332,18 +332,15 @@ export function trustBlend(rows: number, observedGames: number): { early: boolea
 
 export function modelExplainer(): string {
   return [
-    "The estimate looks at similar-seat prices for every home game, not just this one.",
-    "Similar seats are sections 107, 108, 118, and 119, rows J through T, and only groups of at least two seats. A buyer of this pair compares those. Single seats are left out of the middle.",
-    "It learns how those prices usually change as tip gets closer, then lets a hot or cold game sit a little above or below that path.",
-    "Opponent, a weekend tip, a national TV game, and how many similar seats are for sale all nudge the number. The Wizards’ record does too, when that record is known.",
-    "Until there is most of a season of checks, the number leans toward the latest middle of similar seats and is marked as an early estimate.",
-    "A game with fewer than five checks says there is not enough data yet.",
-    "The season goal is $6,000 after fees, plus a 15% cushion. Each suggested ask is the per-seat price that adds the most expected cash for the pair, after the 5% fee. Games marked Sit are left out of that plan.",
-    "If the chance of clearing the goal is low, suggestions lean toward a price more likely to sell. If the chance is high, they can hold out for more.",
-    "A pair that vanishes well before tip is treated as a possible sale, not a sure one. Those notes slowly shape the chance of a sale.",
-    "When an instant offer is saved, that guaranteed price joins the estimate, and the estimate stays at or above the per-seat price the offer implies.",
-    "Within a week of tip, a suggestion that would be expected to clear less than the instant offer says to take the instant offer.",
-    "It is only a suggestion. Nothing is listed for you.",
+    "It reads similar-seat prices for every home game: sections 107, 108, 118 and 119, rows J–T, pairs or bigger. Singles are left out.",
+    "It learns how prices move as tip nears, then lets a hot or cold game run above or below that path.",
+    "Opponent, weekend tips, national TV, seats for sale and the Wizards' record nudge the number.",
+    "Until there's most of a season of checks, it leans on the latest middle and says Early estimate. Under five checks, it waits.",
+    "The goal is $6,000 after fees plus 15%. Each ask is the price that adds the most expected cash after the 5% fee. Sit games are left out.",
+    "Goal at risk: asks lean toward selling. Goal safe: they hold out.",
+    "A pair that vanishes well before tip counts as a possible sale.",
+    "A saved instant offer sets a floor. Within a week of tip, if a listing likely clears less, it says take the instant offer.",
+    "Suggestions only. Nothing is listed automatically.",
   ].join(" ");
 }
 
@@ -440,10 +437,9 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
     instantTotal: game.instantPerTicket != null && game.instantPerTicket > 0 ? game.instantPerTicket * PAIR_SEATS : null,
   });
 
-  const earlyLead = fit.early ? "Early estimate. " : "";
   const sentence =
-    `${earlyLead}Similar seats look like about ${dollars(today.price)} today, and about ${dollars(tip.price)} by tip. ` +
-    `About 4 times out of 5, the game-day price lands between ${dollars(tip.low)} and ${dollars(tip.high)}.`;
+    `Similar seats: about ${dollars(today.price)} today, ${dollars(tip.price)} by tip. ` +
+    `4 times in 5, game day lands between ${dollars(tip.low)} and ${dollars(tip.high)}.`;
 
   return {
     enough: true,
@@ -536,7 +532,7 @@ export function suggestListPrice(args: {
     return takeInstantSuggestion(args.instantTotal, perTicket);
   }
   const best = bestExpectedOffer(guarded.offers);
-  if (!best) return holdSuggestion("Not enough of a price to suggest an ask. Nothing is listed for you.");
+  if (!best) return holdSuggestion("Not enough price data to suggest an ask yet.");
   return suggestionFromOffer(best);
 }
 
@@ -566,7 +562,7 @@ export function takeInstantSuggestion(total: number, perTicket: number): ListSug
     expectedKeep: Math.round(total * 100) / 100,
     takeInstant: true,
     instantTotal: Math.round(total * 100) / 100,
-    sentence: `Take the instant offer. It pays ${exactDollars(total)} for the pair (${exactDollars(perTicket)} a seat). A listing this close to tip is not expected to clear that. Nothing is listed for you.`,
+    sentence: `Take the instant offer: ${exactDollars(total)} for the pair (${exactDollars(perTicket)} a seat). This close to tip, a listing likely won't beat it.`,
   };
 }
 
@@ -574,9 +570,9 @@ export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSug
   const chancePct = Math.round(offer.chance * 100);
   const leanBit =
     lean === "safer"
-      ? " The season chance is low, so this leans toward a price more likely to sell."
+      ? " The goal is at risk, so it leans toward a price that sells."
       : lean === "patient"
-        ? " The season chance is high, so this can hold out for a little more."
+        ? " The goal looks safe, so it holds out a little."
         : "";
   return {
     ask: offer.ask,
@@ -585,7 +581,7 @@ export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSug
     expectedKeep: offer.expected,
     takeInstant: false,
     instantTotal: null,
-    sentence: `Suggested ask: ${dollars(offer.ask)} a seat. The rough chance of a sale before tip is ${chancePct}%. Expected cash for the pair, after the 5% fee, is about ${dollars(offer.expected)}.${leanBit} This is only a suggestion. Nothing is listed for you.`,
+    sentence: `Ask ${dollars(offer.ask)} a seat: about a ${chancePct}% chance it sells before tip, and about ${dollars(offer.expected)} for the pair after the 5% fee.${leanBit}`,
   };
 }
 
@@ -594,8 +590,8 @@ export function sitSuggestion(sentence: string): ListSuggestion {
 }
 
 export function soldSuggestion(banked: number): ListSuggestion {
-  const cash = banked > 0 ? `, about ${dollars(banked)} after fees` : "";
-  return holdSuggestion(`These seats are already sold${cash}. Nothing is listed for you.`);
+  const cash = banked > 0 ? ` for ${dollars(banked)} after fees` : "";
+  return holdSuggestion(`Sold${cash}.`);
 }
 
 const SAFER_BELOW = 0.4;
@@ -679,9 +675,9 @@ export function keepingSentence(current: SeasonOutlook, flipped: SeasonOutlook, 
   const fromChance = Math.round(current.chance * 100);
   const toChance = Math.round(flipped.chance * 100);
   if (keepingNow) {
-    return `These seats are marked Sit, so they stay out of the cash plan. Marking this game Sell would move expected season cash from ${fromCash} to ${toCash}, and the chance of clearing the goal from ${fromChance}% to ${toChance}%. Nothing is listed for you.`;
+    return `On Sit, so it's out of the cash plan. Selling moves season cash ${fromCash} → ${toCash} and the goal chance ${fromChance}% → ${toChance}%.`;
   }
-  return `Marking this game Sit would move expected season cash from ${fromCash} to ${toCash}, and the chance of clearing the goal from ${fromChance}% to ${toChance}%. Nothing is listed for you.`;
+  return `Sitting instead moves season cash ${fromCash} → ${toCash} and the goal chance ${fromChance}% → ${toChance}%.`;
 }
 
 /** Chance the independent sale outcomes reach `target` after `banked` is counted. */
@@ -1297,16 +1293,15 @@ function tiltOffer(offers: readonly AskOffer[], ev: AskOffer, lean: SeasonLean):
 }
 
 function outlookSentence(outlook: SeasonOutlook): string {
-  const goal = `${dollars(outlook.breakEven)} plus ${Math.round(outlook.cushion * 100)}%, so ${dollars(outlook.target)} after fees`;
   const unpriced = Math.max(0, outlook.forSale - outlook.priced);
-  const missing = unpriced > 0 ? ` ${unpriced} for-sale games have no price yet, so they are not in this total.` : "";
+  const missing = unpriced > 0 ? ` ${unpriced} for-sale ${unpriced === 1 ? "game has" : "games have"} no price yet and aren't counted.` : "";
   const lean =
     outlook.lean === "safer"
-      ? "The chance of clearing the goal is low, so suggestions lean toward prices more likely to sell."
+      ? "Goal at risk, so asks lean toward selling."
       : outlook.lean === "patient"
-        ? "The chance of clearing the goal is high, so suggestions can hold out for more."
-        : "Suggestions follow the ask with the most expected cash.";
-  return `Season goal is ${goal}. ${dollars(outlook.banked)} is already in from sold games. ${outlook.priced} for-sale games have a price to plan from and are expected to bring about ${dollars(outlook.expectedRest)}, about ${dollars(outlook.expectedTotal)} in all.${missing} The chance of clearing ${dollars(outlook.target)} is about ${Math.round(outlook.chance * 100)}%. ${lean} Nothing is listed for you.`;
+        ? "Goal looks safe, so asks hold out a little."
+        : "Asks go for the most expected cash.";
+  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all.${missing} About a ${Math.round(outlook.chance * 100)}% chance of clearing it. ${lean}`;
 }
 
 function sampleFromSale(sale: ProbableSale, certain: boolean): SaleSample | null {

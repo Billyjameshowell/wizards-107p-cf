@@ -1,3 +1,4 @@
+import { freshness } from "../src/shared/freshness";
 import { bookPullInstants, ingestStatusWarnings, latestInstant } from "../src/shared/ingest-status";
 import { formatEtStamp } from "../src/shared/book";
 import { authorizeBearer, parseFlags, timingSafeEqual } from "../src/shared/guardrails";
@@ -70,6 +71,9 @@ export function renderAdminStatusPage(args: {
   offerSaved?: boolean;
   games?: readonly { date: string; opponent: string }[];
   offers?: readonly { gameDate: string; total: number; perTicket: number; observedAt: string; note: string | null }[];
+  /** Newest data per source, for the freshness pills. */
+  sources?: readonly { label: string; at: string | null }[];
+  now?: Date;
   model?: {
     fittedAt: string | null;
     rows: number | null;
@@ -81,6 +85,12 @@ export function renderAdminStatusPage(args: {
   const attempt = args.lastAttemptAt ? formatEtStamp(new Date(args.lastAttemptAt)) : "none";
   const banners = args.warnings
     .map((warning) => `<p class="warn" role="alert">${escapeHtml(warning)}</p>`)
+    .join("");
+  const pills = (args.sources ?? [])
+    .map((source) => {
+      const f = freshness(source.at, args.now);
+      return `<span class="pill ${f.tone}"><i></i>${escapeHtml(source.label)} · ${escapeHtml(f.label)}</span>`;
+    })
     .join("");
   const games = args.games ?? [];
   const options = games
@@ -117,25 +127,41 @@ export function renderAdminStatusPage(args: {
     input, select { font: inherit; padding: 8px; }
     button { font: inherit; padding: 8px 12px; }
     .saved { background: #e7f6ea; border: 1px solid #1f5c32; border-radius: 8px; padding: 12px 14px; }
+    body { padding: 0 16px; }
+    h1 { margin: 4px 0 8px; font-size: 1.6rem; }
+    h2 { margin-top: 28px; font-size: 1.15rem; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+    dd { margin: 0; }
+    .muted { font-weight: 400; color: #445; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid; border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; }
+    .pill i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .fresh { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; } .fresh i { background: #10b981; }
+    .aging { background: #fffbeb; border-color: #fcd34d; color: #92400e; } .aging i { background: #f59e0b; }
+    .stale { background: #fef2f2; border-color: #fca5a5; color: #991b1b; } .stale i { background: #ef4444; }
+    input, select, button { min-height: 44px; border-radius: 8px; border: 1px solid #c9c3b6; }
+    button { background: #0c2340; color: #fff; border: 0; font-weight: 650; }
+    @media (max-width: 480px) { dl { grid-template-columns: 1fr; gap: 0; } dd { margin-bottom: 8px; } }
   </style>
 </head>
 <body>
   <p><a href="/">Ticket book</a></p>
   <h1>Admin status</h1>
+  ${pills ? `<div class="pills" aria-label="Data freshness">${pills}</div>` : ""}
   ${banners}
   <dl>
     <dt>Ingest</dt><dd>${args.ingestEnabled ? "on" : "off"}</dd>
     <dt>Dry run</dt><dd>${args.dryRun ? "on" : "off"}</dd>
-    <dt>Last successful pull</dt><dd>${escapeHtml(last)} ET <span style="font-weight:400;color:#445">(home-game prices landed)</span></dd>
-    <dt>Last attempt</dt><dd>${escapeHtml(attempt)} ET <span style="font-weight:400;color:#445">(any cron/http SeatData or Apify run)</span></dd>
+    <dt>Last successful pull</dt><dd>${escapeHtml(last)} ET <span class="muted">(home-game prices landed)</span></dd>
+    <dt>Last attempt</dt><dd>${escapeHtml(attempt)} ET <span class="muted">(any SeatData or Apify run)</span></dd>
     <dt>SeatData key</dt><dd>${args.seatdataKey ? "set" : "missing"}</dd>
     <dt>Apify token</dt><dd>${args.apifyToken ? "set" : "missing"}</dd>
-    <dt>Caps</dt><dd>SeatData 20 per run, 25 per ET day. Apify $0.50 and 50 events. Listings off.</dd>
+    <dt>Caps</dt><dd>SeatData 20/run, 25/day · Apify $0.50, 50 events</dd>
     <dt>Next-check error</dt><dd>${modelErrorText(args.model)}</dd>
   </dl>
   <h2>Instant offer</h2>
   ${saved}
-  <p>Log the sell-now offer for a game, such as Get Paid $26.60 ($13.30 per ticket). Enter the pair total, the per-ticket amount, or both. Saving does not list anything.</p>
+  <p>Log a sell-now offer, e.g. Get Paid $26.60 ($13.30 per ticket). Pair total, per ticket, or both. Nothing gets listed.</p>
   <form method="post" action="/admin/instant-offer">
     <label>Game
       ${
@@ -206,6 +232,24 @@ async function latestLiveAttempt(env: Env): Promise<string | null> {
   }
 }
 
+/** Newest priced home-game pull per source. */
+async function sourceFreshness(env: Env): Promise<Record<string, string | null>> {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT source, MAX(pulled_at) AS pulled_at FROM price_pulls
+       WHERE status = 'ok' AND game_date IS NOT NULL
+         AND (COALESCE(listing_count, 0) > 0 OR median IS NOT NULL OR get_in IS NOT NULL)
+       GROUP BY source`,
+    ).all<{ source: string; pulled_at: string | null }>();
+    const out: Record<string, string | null> = {};
+    for (const row of rows.results ?? []) out[row.source] = row.pulled_at;
+    return out;
+  } catch (error) {
+    console.error("admin source freshness", error);
+    return {};
+  }
+}
+
 export async function adminStatusResponse(request: Request, env: Env, now = new Date()): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method not allowed", { status: 405, headers: { ...HEADERS, Allow: "GET, HEAD" } });
@@ -259,7 +303,15 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
   } catch (error) {
     console.error("instant offers", error);
   }
+  const sources = await sourceFreshness(env);
   const html = renderAdminStatusPage({
+    now,
+    sources: [
+      { label: "SeatData comps", at: sources.seatdata ?? null },
+      { label: "Apify", at: sources.apify ?? null },
+      { label: "Instant offers", at: offers.length ? offers.map((o) => o.observedAt).sort().at(-1) ?? null : null },
+      { label: "Model fit", at: model?.fittedAt ?? null },
+    ],
     warnings,
     ingestEnabled: flags.ingestEnabled,
     dryRun: flags.dryRun,

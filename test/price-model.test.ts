@@ -270,7 +270,8 @@ describe("gates, early blend, and the list suggestion", () => {
       query({ gameDate: "2027-03-01", daysOut: 18, snapshots: 8, liveMedian: live, tier: "marquee" }),
     );
     expect(projected.early).toBe(true);
-    expect(projected.sentence.startsWith("Early estimate.")).toBe(true);
+    expect(projected.early).toBe(true);
+    expect(projected.sentence).not.toMatch(/Early estimate/);
     expect(projected.todayPrice).not.toBeNull();
     expect(Math.abs((projected.todayPrice ?? 0) - live) / live).toBeLessThan(0.15);
   });
@@ -290,7 +291,7 @@ describe("gates, early blend, and the list suggestion", () => {
     const suggestion = suggestListPrice({ predictedMedian: fair, daysOut: 14, supply: 6 });
     expect(suggestion.hold).toBe(false);
     expect(suggestion.ask).not.toBeNull();
-    expect(suggestion.sentence).toMatch(/Nothing is listed for you/);
+    expect(suggestion.sentence).not.toMatch(/Nothing is listed/);
     expect(suggestion).not.toHaveProperty("listed");
     expect(suggestion).not.toHaveProperty("attendValue");
 
@@ -315,7 +316,7 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(poor.target).toBe(6900);
     expect(poor.asks["2026-12-01"]?.ask).toBeLessThan(rich.asks["2026-12-01"]?.ask ?? 0);
     expect(poor.asks["2026-12-01"]?.chance).toBeGreaterThan(rich.asks["2026-12-01"]?.chance ?? 1);
-    expect(poor.sentence).toMatch(/Nothing is listed for you/);
+    expect(poor.sentence).not.toMatch(/Nothing is listed/);
     expect(rich.banked).toBe(20000);
     expect(rich.chance).toBe(1);
   });
@@ -332,8 +333,8 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(kept.chance).toBeLessThan(both.chance);
     expect(kept.kept).toBe(1);
     const note = keepingSentence(both, kept, false);
-    expect(note).toMatch(/Marking this game Sit/);
-    expect(note).toMatch(/Nothing is listed for you/);
+    expect(note).toMatch(/Sitting instead moves season cash/);
+    expect(note).not.toMatch(/Nothing is listed/);
   });
 
   it("treats a pair that vanishes well before tip as a possible sale, and ignores edits and singles", () => {
@@ -423,7 +424,7 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(near.ask).toBeNull();
     expect(near.sentence).toMatch(/Take the instant offer/);
     expect(near.sentence).toMatch(/\$500\.00/);
-    expect(near.sentence).toMatch(/Nothing is listed for you/);
+    expect(near.sentence).not.toMatch(/Nothing is listed/);
 
     const later = suggestListPrice({
       predictedMedian: 40,
@@ -489,14 +490,14 @@ describe("gates, early blend, and the list suggestion", () => {
     const note = modelExplainer();
     expect(note).toMatch(/early estimate/i);
     expect(note).toMatch(/five checks/);
-    expect(note).toMatch(/at least two/);
-    expect(note).toMatch(/Single seats are left out/);
+    expect(note).toMatch(/pairs or bigger/);
+    expect(note).toMatch(/Singles are left out/);
     expect(note).toMatch(/\$6,000/);
     expect(note).toMatch(/15%/);
     expect(note).toMatch(/possible sale/i);
     expect(note).toMatch(/instant offer/i);
     expect(note).toMatch(/take the instant offer/i);
-    expect(note).toMatch(/Nothing is listed for you/);
+    expect(note).toMatch(/Nothing is listed automatically/);
     expect(note).not.toMatch(/regression|spline|logit|logistic|bayes|hierarchical|coefficient|prior|empirical/i);
   });
 

@@ -292,7 +292,7 @@ describe("comp history note", () => {
         blendedMedian: 180,
       }),
     ).toBe(
-      "Few similar seats are listed, so this stays close to recent prices. Today they are listed around $100.00.",
+      "Few listed, so this stays near recent prices. Today: $100.00.",
     );
     expect(
       compHistoryNote({
@@ -302,7 +302,7 @@ describe("comp history note", () => {
         snapshotMedian: 181,
         blendedMedian: 180,
       }),
-    ).toBe("A lot of similar seats are listed, so this follows the recent market.");
+    ).toBe("Plenty listed, so this follows the market.");
     expect(
       compHistoryNote({
         pulls: 3,
@@ -481,7 +481,7 @@ describe("suggestion still follows the day rules and a saved type-in", () => {
     expect(view.typeIn).toBe(49);
     expect(view.keep).toBe(46.55);
     expect(view.suggestion?.typeIn).toBe(200);
-    expect(view.suggestion?.historyNote).toContain("recent market");
+    expect(view.suggestion?.historyNote).toContain("follows the market");
     expect(view.usingOwn).toBe(true);
   });
 });

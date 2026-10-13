@@ -1,3 +1,4 @@
+import { latestOf } from "./freshness";
 import { finiteNumber } from "./archive";
 import {
   extractSectionNumber,
@@ -135,7 +136,9 @@ export type TrendsGame = {
   /** Candidate asks for the season cash plan. Empty when the game is sold or past. */
   offers: AskOffer[];
   /** Latest guaranteed payout logged for this game. */
-  instantOffer: { total: number; perTicket: number; seen: string } | null;
+  instantOffer: { total: number; perTicket: number; seen: string; seenAt: string } | null;
+  /** ISO time of the newest similar-seat check for this game. */
+  compsCheckedAt: string | null;
   /** Close to tip, every ask is expected to clear less than the instant offer. */
   takeInstant: boolean;
 };
@@ -156,6 +159,10 @@ export type TrendsReport = {
   band: string;
   firstCheck: string | null;
   lastCheck: string | null;
+  /** ISO time of the newest similar-seat check across all games. */
+  lastPulledAt: string | null;
+  /** ISO time of the newest logged instant offer. */
+  lastOfferAt: string | null;
   gamesWithChecks: number;
   games: TrendsGame[];
   daysOutCurve: DaysOutBucket[];
@@ -604,6 +611,7 @@ function assembleTrends(input: {
         latestSupply.set(seed.date, row.supply);
       }
     }
+    const compsCheckedAt = rows.length > 0 ? rows[rows.length - 1]!.pulledAt : null;
     const daysOut = daysUntil(seed.date, input.today);
     const latest = series[series.length - 1] ?? null;
     const first = series[0] ?? null;
@@ -654,6 +662,7 @@ function assembleTrends(input: {
       offers: [],
       instantOffer: loggedFloor(input.instantOffers ?? [], seed.date, input.today),
       takeInstant: false,
+      compsCheckedAt,
     });
   }
 
@@ -746,6 +755,8 @@ function assembleTrends(input: {
       band: SIMILAR_SEATS,
       firstCheck,
       lastCheck,
+      lastPulledAt: latestOf(games.map((g) => g.compsCheckedAt)),
+      lastOfferAt: latestOf((input.instantOffers ?? []).map((o) => o.observedAt)),
       gamesWithChecks,
       games,
       daysOutCurve: daysOutCurve(games),
@@ -764,7 +775,7 @@ function loggedFloor(
 ): TrendsGame["instantOffer"] {
   const offer = offerAsOf(offers, gameDate, today);
   if (!offer) return null;
-  return { total: offer.total, perTicket: offer.perTicket, seen: offer.observedAt.slice(0, 10) };
+  return { total: offer.total, perTicket: offer.perTicket, seen: offer.observedAt.slice(0, 10), seenAt: offer.observedAt };
 }
 
 function compSnaps(pulls: readonly TrendPull[], listings: readonly TrendListing[]): CompSnap[] {
