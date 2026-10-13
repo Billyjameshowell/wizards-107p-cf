@@ -4,6 +4,8 @@ import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@s
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { SeatPrice } from "@/components/SeatPrice";
+import { FreshBadge, FreshRow } from "@/components/FreshBadge";
+import { latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
 import {
   readPriceOverrides,
@@ -318,6 +320,7 @@ function GameCard({
           <DaysOut date={game.date} todayEt={todayEt} />
           <PreseasonMark type={game.type} />
           <StatusBadge status={status} game={game} />
+          <FreshBadge source="Comps" at={game.comp_checked_at} className="text-[11px]" />
           <a
             href={`/trends/${game.date}`}
             className="text-sm font-semibold text-navy underline underline-offset-2"
@@ -566,8 +569,17 @@ export function TicketBook({
         </div>
         <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Wizards 107P</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          Prices as of {book.asof_et} ET · {book.games.length} home games
+          {book.games.length} home games · prices per seat
         </p>
+        <FreshRow className="mt-2">
+          <FreshBadge source="Comps" at={latestOf(book.games.map((g) => g.comp_checked_at))} />
+          {(() => {
+            const missing = book.games.filter((g) => !g.comp_checked_at).length;
+            return missing > 0 ? (
+              <span className="text-xs text-[#e4eaf3]">{missing} {missing === 1 ? "game" : "games"} never checked</span>
+            ) : null;
+          })()}
+        </FreshRow>
       </header>
 
       <section
@@ -683,7 +695,7 @@ export function TicketBook({
           scale === 1 ? "hidden lg:flex" : "flex",
         )}
       >
-        <p className="text-xs text-muted-foreground">Pinch or Ctrl+scroll to resize. Scroll still moves the list.</p>
+        <p className="text-xs text-muted-foreground">Pinch or Ctrl+scroll to resize.</p>
         <div className="flex items-center gap-1.5" role="group" aria-label="Table size">
           <Button
             type="button"
@@ -814,7 +826,8 @@ export function TicketBook({
                     <TableCell>
                       <span className="font-semibold text-navy">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />{" "}
-                      <StatusBadge status={status} game={game} />
+                      <StatusBadge status={status} game={game} />{" "}
+                      <FreshBadge source="Comps" at={game.comp_checked_at} className="text-[11px]" />
                       <a
                         href={`/trends/${game.date}`}
                         className="mt-1 block text-sm font-semibold text-navy underline underline-offset-2"
@@ -897,23 +910,17 @@ export function TicketBook({
         </summary>
         <div className="mt-3 space-y-2">
           <p>
-            You keep 95% of the dollar you type in Wizards Account Manager, per seat. Both seats are
-            twice that. On a $49 type-in, the seller fee is $2.45, you keep $46.55, and both seats
-            pay $93.10. The buyer pays more than the number you type. This book does not have that
-            buyer total. Sit or Sell here only updates this book.
+            You keep 95% of what you type in Account Manager, per seat; both seats pay double. A $49 type-in keeps
+            $46.55, or $93.10 for the pair. Buyers pay more than you type. Sit or Sell only changes this book.
           </p>
           <p>
-            Listed around is the middle of similar lower-bowl seats: sections 107, 108, 118, and 119,
-            rows J through T. One lone cheap Section 107 Row P listing is left out. The suggested
-            number to type is a whole dollar ending in 0 or 5, like $150, $175, or $200. A dollar
-            ending in 9 is used only when it shows a smaller first digit, so $199 instead of $200. A
-            number you type yourself can be any whole dollar, and it stays when the listings or the
-            days until tip change.
+            The middle is similar lower-bowl seats: 107, 108, 118 and 119, rows J–T, without a lone cheap 107P
+            listing. Suggestions are whole dollars ending in 0 or 5 ($150, $175), or 9 when it drops a digit ($199).
+            Your own number can be anything and stays put.
           </p>
           <p>
-            More than three weeks out, a bigger game sits about 10% above that middle. Inside two
-            weeks, a softer game sits about 5% under it. Other games stay on the middle. The $6,000
-            season goal does not change a game’s price.
+            Big games sit about 10% over the middle until three weeks out; soft games drop about 5% inside two weeks.
+            The $6,000 goal doesn&apos;t move a game&apos;s price.
           </p>
         </div>
       </details>

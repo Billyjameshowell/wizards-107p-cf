@@ -294,14 +294,14 @@ export function compHistoryNote(args: {
       ? false
       : Math.abs(snapshot - args.blendedMedian) >= Math.max(5, args.blendedMedian * 0.03);
   const today =
-    gap && snapshot != null ? ` Today they are listed around ${formatMoney(snapshot)}.` : "";
+    gap && snapshot != null ? ` Today: ${formatMoney(snapshot)}.` : "";
   if (args.confidence === "thin") {
-    return `Few similar seats are listed, so this stays close to recent prices.${today}`;
+    return `Few listed, so this stays near recent prices.${today}`;
   }
   if (args.confidence === "solid") {
-    return `A lot of similar seats are listed, so this follows the recent market.${today}`;
+    return `Plenty listed, so this follows the market.${today}`;
   }
-  return `This uses today's listings and recent prices for these seats.${today}`;
+  return `Blends today with recent prices.${today}`;
 }
 
 function daysUntilTip(gameDate: string, today: string): number | null {

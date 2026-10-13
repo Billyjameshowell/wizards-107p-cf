@@ -246,31 +246,12 @@ export function seriousCompMedian(listings: CompListing[]): CompMedian {
 }
 
 function stanceLabel(stance: Stance, demand: Demand | null, daysOut: number | null): string {
-  if (stance === "above") {
-    return "About 10% above the middle. Bigger game, more than three weeks out.";
-  }
-  if (stance === "below") {
-    return "About 5% under the middle. Softer game, inside two weeks of tip.";
-  }
-  if (daysOut != null && daysOut < 0) {
-    return "On the middle of those listings. This game has already tipped.";
-  }
-  if (demand === "bigger") {
-    if (daysOut == null) {
-      return "On the middle of those listings. Bigger game, and the days until tip are not set.";
-    }
-    return "On the middle of those listings. Bigger game, and tip is inside three weeks.";
-  }
-  if (demand === "soft") {
-    if (daysOut == null) {
-      return "On the middle of those listings. Softer game, and the days until tip are not set.";
-    }
-    return "On the middle of those listings. Softer game, and tip is still more than two weeks away.";
-  }
-  if (demand == null) {
-    return "On the middle of those listings. This game has no bigger or softer mark.";
-  }
-  return "On the middle of those listings.";
+  if (stance === "above") return "About 10% over the middle: big game, 3+ weeks out.";
+  if (stance === "below") return "About 5% under the middle: soft game, inside 2 weeks.";
+  if (daysOut != null && daysOut < 0) return "At the middle. This game has tipped.";
+  if (demand === "bigger") return daysOut == null ? "At the middle. Big game." : "At the middle: big game, but inside 3 weeks.";
+  if (demand === "soft") return daysOut == null ? "At the middle. Soft game." : "At the middle: soft game, but 2+ weeks out.";
+  return "At the middle of similar seats.";
 }
 
 export function suggestFromMedian(args: {
@@ -483,8 +464,8 @@ export function resolveSeatPrice(args: {
     emptyNote: suggestion
       ? null
       : args.excludedDump
-        ? "Only a cheap Section 107 Row P listing is up, so there is no middle to use yet."
-        : "No listings yet in sections 107, 108, 118, and 119, rows J through T.",
+        ? "Only a cheap 107P listing is up, so there is no middle yet."
+        : "No similar seats listed yet (107, 108, 118, 119, rows J–T).",
   };
 }
 

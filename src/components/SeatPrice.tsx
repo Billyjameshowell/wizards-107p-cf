@@ -208,18 +208,17 @@ export function SeatPrice({
           <p className="text-[13px] leading-snug text-muted-foreground">
             {suggestion.heldPrior ? (
               <>
-                No similar seats listed today. Recent ones were around{" "}
-                {formatMoney(suggestion.listedMedian)}
+                None listed today; recently around {formatMoney(suggestion.listedMedian)}
               </>
             ) : (
               <>
-                Listed around {formatMoney(suggestion.listedMedian)} for similar lower-bowl seats
+                Similar seats ~{formatMoney(suggestion.listedMedian)}
                 {suggestion.compCount != null && suggestion.compCount > 0
-                  ? ` · ${suggestion.compCount} ${suggestion.compCount === 1 ? "listing" : "listings"}`
+                  ? ` · ${suggestion.compCount} listed`
                   : ""}
               </>
             )}
-            {suggestion.excludedDump ? " · left out one cheap 107P listing" : ""}
+            {suggestion.excludedDump ? " · one cheap 107P left out" : ""}
           </p>
           <p className="text-xs leading-snug text-muted-foreground">{suggestion.label}</p>
           {suggestion.historyNote ? (
@@ -231,7 +230,7 @@ export function SeatPrice({
         <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
           {view.usingOwn && suggestion ? (
             <>
-              Suggested you keep {formatMoney(suggestion.keep)} · type ${suggestion.typeIn}.{" "}
+              Suggested: type ${suggestion.typeIn}, keep {formatMoney(suggestion.keep)}.{" "}
             </>
           ) : (
             <>Saved on this game. </>

@@ -183,3 +183,26 @@ describe("priced home pull helper", () => {
     ).toBe(false);
   });
 });
+
+describe("admin freshness pills", () => {
+  it("colors each source by age", async () => {
+    const { renderAdminStatusPage } = await import("../worker/admin-status");
+    const html = renderAdminStatusPage({
+      warnings: [],
+      ingestEnabled: true,
+      dryRun: false,
+      lastPullAt: null,
+      seatdataKey: true,
+      apifyToken: true,
+      now: new Date("2026-10-13T23:00:00Z"),
+      sources: [
+        { label: "SeatData comps", at: "2026-10-13T12:01:00Z" },
+        { label: "Apify", at: null },
+        { label: "Instant offers", at: "2026-10-12T00:00:00Z" },
+      ],
+    });
+    expect(html).toContain('<span class="pill fresh"><i></i>SeatData comps · 10h ago</span>');
+    expect(html).toContain('<span class="pill stale"><i></i>Apify · never</span>');
+    expect(html).toContain('<span class="pill aging"><i></i>Instant offers · 1 day ago</span>');
+  });
+});

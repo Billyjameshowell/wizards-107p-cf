@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FreshBadge, FreshRow } from "@/components/FreshBadge";
 import { cn } from "@/lib/utils";
 
 type SortKey = "date" | "opponent" | "median" | "change7d" | "changeSinceFirst" | "projection";
@@ -232,19 +233,18 @@ function CashPlan({ outlook }: { outlook: SeasonOutlook }) {
           <dd className="text-lg font-semibold tabular-nums text-navy">{formatMoney(outlook.banked)}</dd>
         </div>
         <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
-          <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Expected from the rest</dt>
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Still to come</dt>
           <dd className="text-lg font-semibold tabular-nums text-navy">{formatMoney(outlook.expectedRest)}</dd>
         </div>
         <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
           <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Chance of clearing {formatMoney(outlook.target)}
+            Odds of {formatMoney(outlook.target)}
           </dt>
           <dd className="text-lg font-semibold tabular-nums text-navy">{Math.round(outlook.chance * 100)}%</dd>
         </div>
       </dl>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        {outlook.kept} marked Sit, {outlook.forSale} still for sale, {outlook.priced} with a price in this total. Sit
-        leaves a game out of the plan. Sell puts it back. Nothing is listed.
+        {outlook.kept} on Sit · {outlook.forSale} for sale · {outlook.priced} priced. Sit takes a game out of the plan.
       </p>
     </section>
   );
@@ -514,9 +514,11 @@ function SeasonView({ report }: { report: TrendsReport }) {
           <SiteNav trendsCurrent />
         </div>
         <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Price trends</h1>
-        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          Similar seats: {bandPhrase(report.band)}. Prices are per seat.
-        </p>
+        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">Similar seats, per seat price.</p>
+        <FreshRow className="mt-2">
+          <FreshBadge source="Comps" at={report.lastPulledAt} />
+          <FreshBadge source="Instant offers" at={report.lastOfferAt} />
+        </FreshRow>
       </header>
 
       <section
@@ -524,14 +526,13 @@ function SeasonView({ report }: { report: TrendsReport }) {
         className="sticky top-0 z-40 -mx-3 mt-3 border-y border-line bg-[#f4f1ea]/95 px-3 py-2 shadow-[0_8px_18px_rgba(12,35,64,0.06)] backdrop-blur-md sm:-mx-4 sm:px-4"
       >
         <p className="text-[15px] font-semibold leading-snug text-navy">
-          {report.gamesWithChecks} {report.gamesWithChecks === 1 ? "game has" : "games have"} price checks
+          {report.gamesWithChecks} games checked
           {report.firstCheck && report.lastCheck
-            ? ` · ${monthDay(report.firstCheck)} through ${monthDay(report.lastCheck)}`
+            ? ` · ${monthDay(report.firstCheck)}–${monthDay(report.lastCheck)}`
             : ""}
         </p>
         <p className="text-sm leading-snug text-[#3d4654]">
-          {down} down and {up} up over the last 7 days
-          <span className="text-muted-foreground"> · green is up, red is down</span>
+          7 days: <span className="text-emerald-700">{up} up</span>, <span className="text-red-700">{down} down</span>
         </p>
       </section>
 
@@ -539,11 +540,10 @@ function SeasonView({ report }: { report: TrendsReport }) {
 
       <section aria-labelledby="days-out-heading" className="mt-4 rounded-2xl border border-line bg-card px-3 py-3 sm:px-4">
         <h2 id="days-out-heading" className="text-base font-semibold text-navy">
-          How prices move as tip gets closer
+          How prices move toward tip
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {dots.length} price {dots.length === 1 ? "check" : "checks"} across {report.gamesWithChecks}{" "}
-          {report.gamesWithChecks === 1 ? "game" : "games"}.
+          {dots.length} checks · {report.gamesWithChecks} games
         </p>
         <div className="mt-2">
           <DaysOutChart curve={report.daysOutCurve} dots={dots} />
@@ -560,7 +560,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
             className="h-11 px-3.5 lg:h-8"
             onClick={() => setFilter("history")}
           >
-            With price checks
+            Checked
           </Button>
           <Button
             type="button"
@@ -611,15 +611,13 @@ function SeasonView({ report }: { report: TrendsReport }) {
         <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-navy">How to read this</summary>
         <div className="mt-3 space-y-2">
           <p>
-            Similar seats are {bandPhrase(report.band)}, at least two together. Single seats are left out, because a
-            buyer of this pair compares pairs and larger groups. The median is the middle of those prices. The cheapest
-            line is the lowest of those same seats. Your ask is the number to type today. You keep 95% of it, and both
-            seats pay twice that. Sit leaves a game out of the season cash plan. Sell puts it back. Nothing is listed.
+            Similar seats are {bandPhrase(report.band)}, pairs or bigger, since a buyer of this pair compares pairs.
+            Median is the middle price; cheapest is the low end of those same seats. Your ask is what to type today:
+            you keep 95%, both seats pay double.
           </p>
           <p>
-            7-day change compares the latest median with the one from about a week earlier. Since first check compares
-            it with the first median we saved. By tip is the model’s game-day price for similar seats. A game with
-            fewer than five checks says there is not enough data yet.
+            7-day compares today&apos;s median with a week ago. By tip is the model&apos;s game-day price. Under five
+            checks, there isn&apos;t enough data yet.
           </p>
         </div>
       </details>
@@ -636,11 +634,20 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
   const outlook = useMemo(() => planFor(report, scenario), [report, scenario]);
   const suggestion = suggestionFor(game, outlook, scenario);
   const note = keepingNote(report, game, scenario, outlook);
-  const checksLabel = game.checks === 1 ? "1 price check" : `${game.checks} price checks`;
+  const checksLabel = game.checks === 1 ? "1 check" : `${game.checks} checks`;
   const span =
     game.series.length > 0
-      ? `${monthDay(game.series[0]?.date ?? null)} through ${monthDay(game.series[game.series.length - 1]?.date ?? null)}`
+      ? `${monthDay(game.series[0]?.date ?? null)}–${monthDay(game.series[game.series.length - 1]?.date ?? null)}`
       : null;
+  const suggested = game.sold
+    ? "Sold"
+    : suggestion?.takeInstant
+      ? "Take offer"
+      : suggestion?.hold
+        ? choiceOf(game, scenario) === "Sit"
+          ? "Sit"
+          : "—"
+        : formatMoney(suggestion?.ask ?? null);
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
@@ -657,11 +664,15 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
           {game.daysOut != null ? ` · ${formatDaysOut(game.daysOut)}` : ""}
           {game.type === "preseason" ? " · Preseason" : ""}
         </p>
+        <FreshRow className="mt-2">
+          <FreshBadge source="Comps" at={game.compsCheckedAt} />
+          {game.instantOffer ? <FreshBadge source="Instant offer" at={game.instantOffer.seenAt} /> : null}
+        </FreshRow>
       </header>
 
-      <p className="mt-3">
+      <p className="mt-2">
         <a href="/trends" className="inline-flex min-h-11 items-center text-sm font-semibold text-navy underline underline-offset-2">
-          All games
+          ← All games
         </a>
       </p>
 
@@ -679,31 +690,24 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
         )}
       </section>
 
-      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <Stat label="Median" value={formatMoney(game.latestMedian)} />
-        <Stat label="Estimated today" value={formatMoney(game.projection.todayPrice)} />
-        <Stat label="Cheapest similar seat" value={formatMoney(game.latestCheapest)} />
+      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Suggested ask" value={suggested} emphasis />
         <Stat label="Your ask" value={formatMoney(game.ask)} />
-        <Stat
-          label="Suggested ask"
-          value={
-            game.sold ? "Sold" : suggestion?.hold ? (choiceOf(game, scenario) === "Sit" ? "Sit" : "—") : formatMoney(suggestion?.ask ?? null)
-          }
-        />
-        <Stat label="Expected season cash" value={formatMoney(outlook.expectedTotal)} />
-        <Stat label="Chance of the goal" value={`${Math.round(outlook.chance * 100)}%`} />
+        <Stat label="You keep, both" value={formatMoney(game.pair)} />
         <Stat
           label="Instant offer"
-          value={
-            game.instantOffer
-              ? `${formatMoney(game.instantOffer.perTicket)} a seat`
-              : "—"
-          }
+          value={game.instantOffer ? `${formatMoney(game.instantOffer.perTicket)}/seat` : "—"}
         />
-        <Stat label="You keep" value={formatMoney(game.keep)} />
-        <Stat label="Both seats" value={formatMoney(game.pair)} />
+        <Stat label="Median now" value={formatMoney(game.latestMedian)} />
+        <Stat label="Model today" value={formatMoney(game.projection.todayPrice)} />
+        <Stat label="Cheapest similar" value={formatMoney(game.latestCheapest)} />
         <Stat label="7-day" value={formatSignedPercent(game.change7d)} tone={percentClass(game.change7d)} />
       </dl>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Per seat unless noted · season: {formatMoney(outlook.expectedTotal)} expected,{" "}
+        {Math.round(outlook.chance * 100)}% odds of {formatMoney(outlook.target)} · suggestions only, nothing is listed
+        automatically.
+      </p>
 
       <section aria-labelledby="game-chart-heading" className="mt-4 rounded-2xl border border-line bg-card px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -764,11 +768,11 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Stat({ label, value, tone, emphasis = false }: { label: string; value: string; tone?: string; emphasis?: boolean }) {
   return (
-    <div className="rounded-xl border border-line bg-card px-3 py-2.5">
+    <div className={cn("rounded-xl border border-line bg-card px-3 py-2.5", emphasis && "border-navy/30 bg-navy/[0.04]")}>
       <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
-      <dd className={cn("mt-0.5 text-base font-semibold tabular-nums text-navy", tone)}>{value}</dd>
+      <dd className={cn("mt-0.5 font-semibold tabular-nums text-navy", emphasis ? "text-xl" : "text-base", tone)}>{value}</dd>
     </div>
   );
 }

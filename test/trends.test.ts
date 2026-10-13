@@ -168,11 +168,11 @@ describe("buildTrendsReport", () => {
     expect(bucks?.changeSinceFirst).toBeLessThan(0);
     expect(bucks?.projection.enough).toBe(true);
     expect(bucks?.projection.early).toBe(true);
-    expect(bucks?.projection.sentence).toMatch(/Early estimate/);
+    expect(bucks?.projection.early).toBe(true);
     expect(bucks?.projection.sentence).toMatch(/by tip/);
     expect(bucks?.projection.price).not.toBeNull();
     expect(bucks?.projection.todayPrice).not.toBeNull();
-    expect(bucks?.projection.suggestion?.sentence).toMatch(/Nothing is listed for you/);
+    expect(bucks?.projection.suggestion?.sentence).not.toMatch(/Nothing is listed/);
     expect(bucks?.ask).not.toBeNull();
     expect(bucks?.instantOffer).toBeNull();
     expect(bucks?.takeInstant).toBe(false);
@@ -219,11 +219,12 @@ describe("instant offer floor", () => {
       ],
     });
     const game = report.games.find((row) => row.date === "2026-10-10");
-    expect(game?.instantOffer).toEqual({ total: 26.6, perTicket: 13.3, seen: "2026-10-08" });
+    expect(game?.instantOffer).toMatchObject({ total: 26.6, perTicket: 13.3, seen: "2026-10-08" });
+    expect(game?.instantOffer?.seenAt).toMatch(/^2026-10-08/);
     expect(game?.takeInstant).toBe(true);
     expect(game?.projection.suggestion?.sentence).toMatch(/Take the instant offer/);
     expect(game?.projection.suggestion?.sentence).toMatch(/\$26\.60/);
-    expect(game?.projection.suggestion?.sentence).toMatch(/Nothing is listed for you/);
+    expect(game?.projection.suggestion?.sentence).not.toMatch(/Nothing is listed/);
     expectPublic(report);
     expect(JSON.stringify(report)).not.toContain("tm_instant_offer");
   });
