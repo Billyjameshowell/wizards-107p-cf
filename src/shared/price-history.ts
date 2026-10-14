@@ -1,6 +1,11 @@
 import { roundMoney } from "./book";
 import { formatMoney } from "./format";
-import { etDateFrom } from "./guardrails";
+import {
+  etDateFrom,
+  SEATDATA_DAILY_SPEND_CAP_USD,
+  SEATDATA_PULL_USD,
+  seatDataSlateFitsDailyCap,
+} from "./guardrails";
 
 /**
  * Saved SeatData checks for one game. The suggestion uses a blend of those
@@ -32,8 +37,11 @@ export const OBSERVATION_WINDOW_DAYS = 45;
 export const HISTORY_KEEP_DAYS = 120;
 /** Tip inside this window is refreshed ahead of a far-out game. */
 export const CLOSE_TIP_DAYS = 14;
-export const CLOSE_BONUS_HOURS = 72;
-export const SELL_BONUS_HOURS = 12;
+/**
+ * Far games are pulled again once they are two ET mornings old (~48h at the 8am cron).
+ * Used only when charging every open game every day would pass the $2 cap.
+ */
+export const FAR_GAME_STALE_HOURS = 48;
 
 export type CompConfidence = "thin" | "building" | "solid";
 
@@ -312,30 +320,82 @@ function daysUntilTip(gameDate: string, today: string): number | null {
   return Math.round((game - start) / 86_400_000);
 }
 
-function urgency(game: CompGameOrder, now: Date, today: string): number {
-  const checked = game.comp_checked_at ? Date.parse(game.comp_checked_at) : Number.NaN;
-  if (!game.comp_checked_at || Number.isNaN(checked)) return Number.POSITIVE_INFINITY;
-  let hours = (now.getTime() - checked) / 3_600_000;
+function checkedMs(game: CompGameOrder): number | null {
+  if (!game.comp_checked_at) return null;
+  const ms = Date.parse(game.comp_checked_at);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** 0 = never checked, 1 = within 14 days, 2 = further out. */
+function queueTier(game: CompGameOrder, today: string): 0 | 1 | 2 {
+  if (checkedMs(game) == null) return 0;
   const daysOut = daysUntilTip(game.date, today);
-  if (daysOut != null && daysOut >= 0 && daysOut <= CLOSE_TIP_DAYS) hours += CLOSE_BONUS_HOURS;
-  if (game.sit_or_sell === "Sell") hours += SELL_BONUS_HOURS;
-  return hours;
+  if (daysOut != null && daysOut >= 0 && daysOut <= CLOSE_TIP_DAYS) return 1;
+  return 2;
+}
+
+function ageHours(game: CompGameOrder, now: Date): number | null {
+  const ms = checkedMs(game);
+  if (ms == null) return null;
+  return (now.getTime() - ms) / 3_600_000;
+}
+
+/** ET calendar day shifted by whole days. Noon UTC keeps the ET date stable across DST. */
+export function shiftEtDate(etDate: string, days: number): string {
+  const anchor = Date.parse(`${etDate}T16:00:00Z`);
+  if (Number.isNaN(anchor)) return etDate;
+  return etDateFrom(new Date(anchor + days * 86_400_000));
 }
 
 /**
- * Same pull budget, spread across the book. A game we have never checked
- * (including one whose event just appeared) goes first. After that, a game
- * close to tip is refreshed ahead of a far-out game, unless the far-out game
- * has gone much longer without a look. Sell games win ties.
+ * A far game is due on the second morning after its last check (~48h at 8am ET).
+ * Calendar distance covers a cron that starts a few minutes early; the hour
+ * check covers a check that is already 48h old on the same pair of dates.
+ */
+export function farGameDue(checkedAt: string | null | undefined, now: Date): boolean {
+  if (!checkedAt) return true;
+  const ms = Date.parse(checkedAt);
+  if (Number.isNaN(ms)) return true;
+  if ((now.getTime() - ms) / 3_600_000 >= FAR_GAME_STALE_HOURS) return true;
+  const today = etDateFrom(now);
+  const checkedDay = etDateFrom(new Date(ms));
+  return checkedDay <= shiftEtDate(today, -2);
+}
+
+/**
+ * Never-checked games first (including a TBD date SeatData has not seen yet),
+ * then games within 14 days, then the rest with the stalest check first.
+ * Date order breaks ties, so Dec 4 comes before the March games.
  */
 export function orderGamesForCompPull<T extends CompGameOrder>(games: readonly T[], now: Date): T[] {
   const today = etDateFrom(now);
   return [...games].sort((a, b) => {
-    const aUrgency = urgency(a, now, today);
-    const bUrgency = urgency(b, now, today);
-    if (aUrgency !== bUrgency) return bUrgency - aUrgency;
-    const sell = Number(b.sit_or_sell === "Sell") - Number(a.sit_or_sell === "Sell");
-    if (sell !== 0) return sell;
+    const tier = queueTier(a, today) - queueTier(b, today);
+    if (tier !== 0) return tier;
+    const aAge = ageHours(a, now);
+    const bAge = ageHours(b, now);
+    if (aAge != null && bAge != null && aAge !== bAge) return bAge - aAge;
+    if (aAge == null && bAge != null) return -1;
+    if (aAge != null && bAge == null) return 1;
     return a.date.localeCompare(b.date);
   });
+}
+
+/**
+ * Open games (today and later, including TBD) in pull order.
+ * When one charged pull per game would pass the daily dollar cap, near games
+ * still go every day and far games wait until they are ~48h old.
+ */
+export function selectGamesForCompPull<T extends CompGameOrder>(
+  games: readonly T[],
+  now: Date,
+  budget?: { pullUsd?: number; dailyCapUsd?: number },
+): T[] {
+  const today = etDateFrom(now);
+  const open = games.filter((game) => game.date >= today);
+  const ordered = orderGamesForCompPull(open, now);
+  const pullUsd = budget?.pullUsd ?? SEATDATA_PULL_USD;
+  const capUsd = budget?.dailyCapUsd ?? SEATDATA_DAILY_SPEND_CAP_USD;
+  if (seatDataSlateFitsDailyCap(ordered.length, pullUsd, capUsd)) return ordered;
+  return ordered.filter((game) => queueTier(game, today) < 2 || farGameDue(game.comp_checked_at, now));
 }

@@ -1,6 +1,6 @@
 import { extractSectionNumber, isCompListing, normalizeRow, type CompListing } from "../../src/shared/book";
 import type { ObservedPull } from "../../src/shared/archive";
-import { orderGamesForCompPull } from "../../src/shared/price-history";
+import { selectGamesForCompPull } from "../../src/shared/price-history";
 import type { ProbableSale } from "../../src/shared/price-model";
 import { daysUntil, seriousCompMedian } from "../../src/shared/pricing";
 import {
@@ -10,7 +10,8 @@ import {
   openCircuit,
   parseFlags,
   recordPaidAttempt,
-  recordSeatDataPull,
+  recordSeatDataCharge,
+  seatDataChargeUsd,
   type Flags,
   type SpendState,
 } from "../../src/shared/guardrails";
@@ -65,9 +66,7 @@ async function seatdataFetch(
 }
 
 export function prioritizeDates(games: AdapterContext["games"], now: Date): string[] {
-  const today = now.toISOString().slice(0, 10);
-  const open = games.filter((game) => game.date >= today && game.sit_or_sell !== "TBD");
-  return orderGamesForCompPull(open, now).map((game) => game.date);
+  return selectGamesForCompPull(games, now).map((game) => game.date);
 }
 
 function opponentFor(ctx: AdapterContext, date: string): string | null {
@@ -80,18 +79,20 @@ function opponentFor(ctx: AdapterContext, date: string): string | null {
  * blew the Worker CPU limit. We keep the comp-zone listings (what the median
  * is built from) and a small raw summary.
  */
-export function slimListingsPayload(body: { has_refreshed?: number; listings?: CompListing[] }): {
+export function slimListingsPayload(body: { has_refreshed?: number | boolean; listings?: CompListing[] }): {
   total: number;
   comps: CompListing[];
   raw: { has_refreshed: number | null; listing_total: number; comp_listings: number };
 } {
   const all = Array.isArray(body.listings) ? body.listings : [];
   const comps = all.filter((listing) => listing && typeof listing === "object" && isCompListing(listing));
+  const refreshed =
+    body.has_refreshed === true ? 1 : body.has_refreshed === false ? 0 : typeof body.has_refreshed === "number" ? body.has_refreshed : null;
   return {
     total: all.length,
     comps,
     raw: {
-      has_refreshed: typeof body.has_refreshed === "number" ? body.has_refreshed : null,
+      has_refreshed: refreshed,
       listing_total: all.length,
       comp_listings: comps.length,
     },
@@ -216,8 +217,9 @@ export async function runSeatData(
   await saveSpend(ctx, spend);
 
   let runPulls = 0;
-  // Every listings call counts toward the per-run cap, refreshed (paid) or not,
-  // so one run can never walk the whole schedule.
+  // Every listings call counts toward the per-run cap, refreshed (paid) or not.
+  // The cap is high enough for all 43 home games. A charged pull also has to
+  // stay inside the $2 ET-day spend cap.
   let runFetches = 0;
   const points: MarketPoint[] = [];
   const sales: ProbableSale[] = [];
@@ -232,6 +234,7 @@ export async function runSeatData(
     const pullGate = canTakeSeatDataPull({
       runPulls,
       pullsToday: spend.sources.seatdata.pullsToday,
+      usdToday: spend.sources.seatdata.usdToday ?? 0,
       maxPerRun: flags.seatdataMaxPullsPerRun,
       maxPerDay: flags.seatdataMaxPullsPerEtDay,
     });
@@ -300,12 +303,13 @@ export async function runSeatData(
     }
 
     const body = (await listingsRes.json()) as {
-      has_refreshed?: number;
+      has_refreshed?: number | boolean;
       listings?: CompListing[];
     };
-    if (body.has_refreshed === 1) {
+    const costUsd = seatDataChargeUsd(body.has_refreshed);
+    if (costUsd > 0) {
       runPulls += 1;
-      spend.sources.seatdata = recordSeatDataPull(spend.sources.seatdata, etDate);
+      spend.sources.seatdata = recordSeatDataCharge(spend.sources.seatdata, etDate, costUsd);
       await saveSpend(ctx, spend);
     }
 
@@ -324,7 +328,8 @@ export async function runSeatData(
       gameDate: date,
       opponent: opponentFor(ctx, date),
       status: slim.total === 0 ? "empty" : "ok",
-      paid: body.has_refreshed === 1,
+      paid: costUsd > 0,
+      costUsd,
       httpStatus: listingsRes.status,
       listings: slim.comps,
       raw: slim.raw,
@@ -391,6 +396,7 @@ async function fetchRecentSales(args: {
   const pullGate = canTakeSeatDataPull({
     runPulls: args.runPulls,
     pullsToday: args.spend.sources.seatdata.pullsToday,
+    usdToday: args.spend.sources.seatdata.usdToday ?? 0,
     maxPerRun: args.flags.seatdataMaxPullsPerRun,
     maxPerDay: args.flags.seatdataMaxPullsPerEtDay,
   });
@@ -414,7 +420,11 @@ async function fetchRecentSales(args: {
   // A response with sale rows spends one pull, even if none are in the pair band.
   if (rows.length > 0) {
     runPulls += 1;
-    args.spend.sources.seatdata = recordSeatDataPull(args.spend.sources.seatdata, args.etDate);
+    args.spend.sources.seatdata = recordSeatDataCharge(
+      args.spend.sources.seatdata,
+      args.etDate,
+      seatDataChargeUsd(true),
+    );
   }
   return { sales: parsed, runPulls, spend: args.spend };
 }

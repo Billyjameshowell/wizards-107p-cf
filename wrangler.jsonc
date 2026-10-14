@@ -1,7 +1,8 @@
 /**
  * Official C3 React + Vite + Workers config, plus D1/KV, cron, and production vars.
  * `wrangler deploy` replaces dashboard vars with this file. Leave INGEST_ENABLED
- * true and DRY_RUN false here. Caps below are the hard ceilings; do not raise them.
+ * true and DRY_RUN false here. SeatData ceilings are 50 pulls and $2/ET-day
+ * ($0.04 × 50). Do not raise them. Cron and secrets are unchanged.
  * https://developers.cloudflare.com/workers/framework-guides/web-apps/react/
  */
 {
@@ -23,11 +24,11 @@
 	"vars": {
 		"INGEST_ENABLED": "true",
 		"DRY_RUN": "false",
-		"SOURCES": "seatdata,apify",
+		"SOURCES": "seatdata",
 		"APIFY_INCLUDE_LISTINGS": "false",
 		"SEATDATA_BASE_URL": "https://seatdata.io",
-		"SEATDATA_MAX_PULLS_PER_RUN": "20",
-		"SEATDATA_MAX_PULLS_PER_ET_DAY": "25",
+		"SEATDATA_MAX_PULLS_PER_RUN": "50",
+		"SEATDATA_MAX_PULLS_PER_ET_DAY": "50",
 		"APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
 		"APIFY_MAX_EVENTS": "50",
 		"APIFY_ACTOR": "ahmed_jasarevic~seatgeek-scraper",

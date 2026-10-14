@@ -104,10 +104,10 @@ Flags are Worker **vars** in `wrangler.jsonc`. `npm run deploy` uploads that fil
 | --- | --- | --- |
 | `INGEST_ENABLED` | `true` | A missing var still defaults off, so deleting it stops spend |
 | `DRY_RUN` | `false` | A missing var still defaults on |
-| `SOURCES` | `seatdata,apify` | Comma list of adapters |
+| `SOURCES` | `seatdata` | Apify is off. `seatdata,apify` turns it back on |
 | `APIFY_INCLUDE_LISTINGS` | `false` | Leave false; listings are expensive |
-| `SEATDATA_MAX_PULLS_PER_RUN` | `20` | Cannot be raised past 20 |
-| `SEATDATA_MAX_PULLS_PER_ET_DAY` | `25` | Cannot be raised past 25 |
+| `SEATDATA_MAX_PULLS_PER_RUN` | `50` | Cannot be raised past 50. One run covers all 43 home games |
+| `SEATDATA_MAX_PULLS_PER_ET_DAY` | `50` | Cannot be raised past 50. Daily dollars stop at $2 ($0.04 per charged pull) |
 | `APIFY_MAX_TOTAL_CHARGE_USD` | `0.50` | Cannot be raised past $0.50 |
 | `APIFY_MAX_EVENTS` | `50` | Cannot be raised past 50 |
 | `APIFY_ACTOR` | `ahmed_jasarevic~seatgeek-scraper` | Default is SeatGeek Platform API price stats. Allow-listed alternate: `lentic_clockss~seatgeek-scraper`. Anything else falls back to the default |
@@ -125,7 +125,7 @@ npx wrangler secret put SEATDATA_API_KEY
 npx wrangler secret put APIFY_TOKEN
 ```
 
-`secret list` shows names only. Put a secret only when the name is missing. Then the ~8am ET cron (or a Bearer call to `/api/cron`) may call SeatData and Apify, write the book to D1/KV, and the next page load shows new asks. One paid attempt per source per run. 429/5xx abort that source and trip an ET-day circuit breaker. Caps stay 20/25 SeatData pulls and $0.50 Apify.
+`secret list` shows names only. Put a secret only when the name is missing. Then the ~8am ET cron (or a Bearer call to `/api/cron`) may call SeatData, write the book to D1/KV, and the next page load shows new asks. One paid attempt per source per run. 429/5xx abort that source and trip an ET-day circuit breaker. SeatData stops at 50 pulls per run, 50 per ET day, and $2 per ET day. A charged pull is recorded at $0.04. Apify is not called.
 
 `/admin` is the status page (HTTP Basic password is `CRON_SECRET`, or the same bearer as `/api/cron`). It warns when ingest is off, dry run is on, or the last successful pull is more than 3 days old. That warning is not on the public book.
 
@@ -168,6 +168,10 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 `table` is `pulls`, `listings`, or `summaries` (JSON also allows `all`).
 
-No new flags. Production ingest is on and dry run is off in `wrangler.jsonc`. Do not raise the spend caps.
+`GET /api/freshness` is public and read-only. It returns each game’s last comp check and the last SeatData and Apify archive check, with `stale: true` when that check is 72 hours old or missing.
+
+No new SQL migration. `price_pulls.cost_usd` already exists; the next charged listings pull writes 0.04 into it. Older rows stay as they are. Spend JSON in D1/KV gains `usdToday`; a saved spend row without that field counts as $0 for the current ET day.
+
+Production ingest is on and dry run is off in `wrangler.jsonc`. Do not raise the SeatData ceilings past 50 pulls or $2. Cron stays `0 12 * * *`. Do not rotate secrets for this change.
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).

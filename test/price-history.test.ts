@@ -7,8 +7,11 @@ import {
   compHistoryNote,
   mergeToday,
   orderGamesForCompPull,
+  selectGamesForCompPull,
   type CompObservation,
 } from "@shared/price-history";
+import { SEATDATA_PULL_USD, seatDataDailyCostUsd, seatDataSlateFitsDailyCap } from "@shared/guardrails";
+import { SEED_BOOK } from "../worker/store";
 import { resolveSeatPrice, seatPriceForGame, seriousCompMedian, suggestFromMedian } from "@shared/pricing";
 import { etDateFrom } from "@shared/guardrails";
 import { prioritizeDates } from "../worker/adapters/seatdata";
@@ -316,45 +319,45 @@ describe("comp history note", () => {
 });
 
 describe("which games get the next check", () => {
-  it("looks at an unchecked game before one already checked", () => {
-    const dates = prioritizeDates(
-      [
-        game({ date: "2026-10-01", opponent: "past" }),
-        game({ date: "2026-12-04", opponent: "cup", sit_or_sell: "TBD" }),
-        game({
-          date: "2026-10-12",
-          comp_checked_at: "2026-10-06T12:00:00.000Z",
-        }),
-        game({ date: "2027-03-06", opponent: "Utah Jazz" }),
-        game({ date: "2026-10-21", opponent: "Bucks", sit_or_sell: "Sit" }),
-      ],
-      NOW,
-    );
-    expect(dates[0]).toBe("2027-03-06");
-    expect(dates).not.toContain("2026-10-01");
-    expect(dates).not.toContain("2026-12-04");
-    expect(dates.indexOf("2026-10-21")).toBeLessThan(dates.indexOf("2026-10-12"));
+  const morning = new Date("2026-10-14T12:00:00.000Z");
+
+  function row(
+    date: string,
+    opponent: string,
+    extra: Partial<Game> = {},
+  ): Game {
+    return game({ date, opponent, sit_or_sell: "Sell", ...extra });
+  }
+
+  const slate = [
+    row("2026-10-10", "past"),
+    row("2026-10-23", "Toronto Raptors", { comp_checked_at: "2026-10-14T10:00:00.000Z" }),
+    row("2026-10-21", "Milwaukee Bucks", { comp_checked_at: "2026-10-13T06:00:00.000Z" }),
+    row("2026-12-04", "TBD (NBA Cup week)", { sit_or_sell: "TBD" }),
+    row("2027-03-06", "Utah Jazz"),
+    row("2027-03-24", "Denver Nuggets"),
+    row("2027-03-31", "Chicago Bulls"),
+    row("2027-04-02", "Philadelphia 76ers", { comp_checked_at: "2026-10-10T00:00:00.000Z" }),
+    row("2027-04-11", "Detroit Pistons", { comp_checked_at: "2026-10-14T02:00:00.000Z" }),
+  ];
+
+  it("puts never-checked games first, then games within 14 days, then the stalest", () => {
+    const dates = prioritizeDates(slate, morning);
+    expect(dates).toEqual([
+      "2026-12-04",
+      "2027-03-06",
+      "2027-03-24",
+      "2027-03-31",
+      "2026-10-21",
+      "2026-10-23",
+      "2027-04-02",
+      "2027-04-11",
+    ]);
+    expect(dates).not.toContain("2026-10-10");
   });
 
-  it("refreshes a game near tip ahead of a far game, unless the far game has waited much longer", () => {
-    const closeFirst = orderGamesForCompPull(
-      [
-        {
-          date: "2026-11-20",
-          sit_or_sell: "Sell",
-          comp_checked_at: daysAgo(0, 40),
-        },
-        {
-          date: "2026-10-10",
-          sit_or_sell: "Sell",
-          comp_checked_at: daysAgo(0, 30),
-        },
-      ],
-      NOW,
-    );
-    expect(closeFirst.map((item) => item.date)).toEqual(["2026-10-10", "2026-11-20"]);
-
-    const neglectedFar = orderGamesForCompPull(
+  it("refreshes a game within 14 days ahead of a staler far game", () => {
+    const ordered = orderGamesForCompPull(
       [
         {
           date: "2026-11-20",
@@ -369,7 +372,41 @@ describe("which games get the next check", () => {
       ],
       NOW,
     );
-    expect(neglectedFar.map((item) => item.date)).toEqual(["2026-11-20", "2026-10-10"]);
+    expect(ordered.map((item) => item.date)).toEqual(["2026-10-10", "2026-11-20"]);
+  });
+
+  it("pulls all 43 home games daily because that stays under $2", () => {
+    expect(SEED_BOOK.games).toHaveLength(43);
+    expect(seatDataDailyCostUsd(SEED_BOOK.games.length)).toBe(1.72);
+    expect(seatDataSlateFitsDailyCap(43)).toBe(true);
+    expect(43 * SEATDATA_PULL_USD).toBeCloseTo(1.72, 2);
+
+    const beforeOpeners = new Date("2026-10-01T12:00:00.000Z");
+    expect(prioritizeDates(SEED_BOOK.games, beforeOpeners)).toHaveLength(43);
+
+    const mostlyChecked = SEED_BOOK.games.map((game) =>
+      ["2026-12-04", "2027-03-06", "2027-03-24", "2027-03-31"].includes(game.date)
+        ? game
+        : { ...game, comp_checked_at: "2026-10-01T12:00:00.000Z" },
+    );
+    const ordered = prioritizeDates(mostlyChecked, new Date("2026-10-02T12:00:00.000Z"));
+    expect(ordered).toHaveLength(43);
+    expect(ordered.slice(0, 4)).toEqual(["2026-12-04", "2027-03-06", "2027-03-24", "2027-03-31"]);
+  });
+
+  it("refreshes near games daily and far games every two days when a full slate would pass $2", () => {
+    const due = selectGamesForCompPull(slate, morning, { pullUsd: 0.3, dailyCapUsd: 2 });
+    expect(due.map((item) => item.date)).toEqual([
+      "2026-12-04",
+      "2027-03-06",
+      "2027-03-24",
+      "2027-03-31",
+      "2026-10-21",
+      "2026-10-23",
+      "2027-04-02",
+    ]);
+    expect(due.map((item) => item.date)).not.toContain("2027-04-11");
+    expect(due.map((item) => item.date)).not.toContain("2026-10-10");
   });
 });
 

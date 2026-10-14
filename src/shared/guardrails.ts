@@ -1,14 +1,24 @@
 export type SourceId = "seatdata" | "apify";
 
+/**
+ * SeatData pay-as-you-go is $0.04 per charged listings pull (a refresh).
+ * Search is free, and a listings response that has not refreshed is free.
+ * $2 / $0.04 = 50 charged pulls. 43 home games × $0.04 = $1.72, under the cap.
+ */
+export const SEATDATA_PULL_USD = 0.04;
+export const SEATDATA_DAILY_SPEND_CAP_USD = 2;
+
 export const HARD_CAPS = {
-  seatdataMaxPullsPerRun: 20,
-  seatdataMaxPullsPerEtDay: 25,
+  /** One morning run can walk the whole 43-game slate. Still under the $2 day cap. */
+  seatdataMaxPullsPerRun: 50,
+  seatdataMaxPullsPerEtDay: 50,
   apifyMaxTotalChargeUsd: 0.5,
   apifyMaxEvents: 50,
   paidAttemptsPerSourcePerRun: 1,
 } as const;
 
-export const DEFAULT_SOURCES: SourceId[] = ["seatdata", "apify"];
+/** Apify is off until a source returns section 107 prices. `seatdata,apify` turns it back on. */
+export const DEFAULT_SOURCES: SourceId[] = ["seatdata"];
 
 export type Flags = {
   ingestEnabled: boolean;
@@ -61,6 +71,8 @@ export type SourceSpend = {
   lastAttemptEtDate: string | null;
   pullsToday: number;
   lastPullEtDate: string | null;
+  /** Dollars charged for SeatData pulls on lastPullEtDate. Missing on older spend JSON means $0. */
+  usdToday?: number;
   circuitOpenEtDate: string | null;
   lastError?: string;
 };
@@ -94,8 +106,30 @@ export function emptySourceSpend(): SourceSpend {
     lastAttemptEtDate: null,
     pullsToday: 0,
     lastPullEtDate: null,
+    usdToday: 0,
     circuitOpenEtDate: null,
   };
+}
+
+/** What a listings response actually cost. Charged only when SeatData refreshed. */
+export function seatDataChargeUsd(hasRefreshed: unknown): number {
+  return hasRefreshed === 1 || hasRefreshed === true ? SEATDATA_PULL_USD : 0;
+}
+
+export function seatDataDailyCostUsd(
+  gameCount: number,
+  pullUsd: number = SEATDATA_PULL_USD,
+): number {
+  return Math.round(gameCount * pullUsd * 100) / 100;
+}
+
+/** True when charging one pull per game would stay within the daily dollar cap. */
+export function seatDataSlateFitsDailyCap(
+  gameCount: number,
+  pullUsd: number = SEATDATA_PULL_USD,
+  capUsd: number = SEATDATA_DAILY_SPEND_CAP_USD,
+): boolean {
+  return Math.round(gameCount * pullUsd * 100) <= Math.round(capUsd * 100);
 }
 
 export function emptySpendState(etDate: string): SpendState {
@@ -253,6 +287,7 @@ export function rolloverSpend(state: SpendState | null | undefined, etDate: stri
       lastAttemptEtDate: prev.lastAttemptEtDate === etDate ? prev.lastAttemptEtDate : null,
       pullsToday: sameDay && prev.lastPullEtDate === etDate ? prev.pullsToday : 0,
       lastPullEtDate: prev.lastPullEtDate === etDate ? prev.lastPullEtDate : null,
+      usdToday: prev.lastPullEtDate === etDate ? (prev.usdToday ?? 0) : 0,
       circuitOpenEtDate: prev.circuitOpenEtDate === etDate ? etDate : null,
       lastError: prev.circuitOpenEtDate === etDate ? prev.lastError : undefined,
     };
@@ -303,12 +338,21 @@ export function canTakeSeatDataPull(args: {
   pullsToday: number;
   maxPerRun: number;
   maxPerDay: number;
+  /** Charged dollars already booked today. The next pull is refused if it would pass the cap. */
+  usdToday?: number;
+  pullUsd?: number;
+  maxUsdPerDay?: number;
 }): Decision {
   if (args.runPulls >= args.maxPerRun) {
     return { ok: false, reason: "run_pull_cap" };
   }
   if (args.pullsToday >= args.maxPerDay) {
     return { ok: false, reason: "day_pull_cap" };
+  }
+  const nextCents = Math.round(((args.usdToday ?? 0) + (args.pullUsd ?? SEATDATA_PULL_USD)) * 100);
+  const capCents = Math.round((args.maxUsdPerDay ?? SEATDATA_DAILY_SPEND_CAP_USD) * 100);
+  if (nextCents > capCents) {
+    return { ok: false, reason: "day_spend_cap" };
   }
   return { ok: true };
 }
@@ -410,5 +454,22 @@ export function recordSeatDataPull(spend: SourceSpend, etDate: string): SourceSp
     ...spend,
     pullsToday: (sameDay ? spend.pullsToday : 0) + 1,
     lastPullEtDate: etDate,
+    usdToday: sameDay ? (spend.usdToday ?? 0) : 0,
+  };
+}
+
+/** Book a charged SeatData pull: one pull on the ET-day counter, plus the real dollars. */
+export function recordSeatDataCharge(spend: SourceSpend, etDate: string, usd: number): SourceSpend {
+  const amount = Math.round(usd * 100) / 100;
+  if (amount <= 0) {
+    return {
+      ...spend,
+      usdToday: spend.lastPullEtDate === etDate ? (spend.usdToday ?? 0) : 0,
+    };
+  }
+  const prevUsd = spend.lastPullEtDate === etDate ? (spend.usdToday ?? 0) : 0;
+  return {
+    ...recordSeatDataPull(spend, etDate),
+    usdToday: Math.round((prevUsd + amount) * 100) / 100,
   };
 }

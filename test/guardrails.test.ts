@@ -16,8 +16,13 @@ import {
   parseFlags,
   parseSources,
   recordPaidAttempt,
-  recordSeatDataPull,
+  recordSeatDataCharge,
   rolloverSpend,
+  SEATDATA_DAILY_SPEND_CAP_USD,
+  SEATDATA_PULL_USD,
+  seatDataChargeUsd,
+  seatDataDailyCostUsd,
+  seatDataSlateFitsDailyCap,
   parseApifyActor,
   parseApifyBuild,
   parseApifyInputOverride,
@@ -33,9 +38,9 @@ describe("SAFE defaults", () => {
     expect(safeFlags.dryRun).toBe(true);
     expect(safeFlags.apifyIncludeListings).toBe(false);
     expect(safeFlags.seatdataFetchSales).toBe(false);
-    expect(safeFlags.sources).toEqual(["seatdata", "apify"]);
-    expect(safeFlags.seatdataMaxPullsPerRun).toBe(20);
-    expect(safeFlags.seatdataMaxPullsPerEtDay).toBe(25);
+    expect(safeFlags.sources).toEqual(["seatdata"]);
+    expect(safeFlags.seatdataMaxPullsPerRun).toBe(50);
+    expect(safeFlags.seatdataMaxPullsPerEtDay).toBe(50);
     expect(safeFlags.apifyMaxTotalChargeUsd).toBe(0.5);
     expect(safeFlags.apifyMaxEvents).toBe(50);
   });
@@ -63,12 +68,13 @@ describe("SAFE defaults", () => {
   it("parses source lists and ignores unknown names", () => {
     expect(parseSources("seatdata")).toEqual(["seatdata"]);
     expect(parseSources("apify,ticketdata")).toEqual(["apify"]);
-    expect(parseSources("")).toEqual(["seatdata", "apify"]);
+    expect(parseSources("")).toEqual(["seatdata"]);
+    expect(parseSources("seatdata,apify")).toEqual(["seatdata", "apify"]);
   });
 });
 
 describe("paid-call gates", () => {
-  const live = parseFlags({ INGEST_ENABLED: "true", DRY_RUN: "false" });
+  const live = parseFlags({ INGEST_ENABLED: "true", DRY_RUN: "false", SOURCES: "seatdata,apify" });
 
   it("blocks paid work when ingest is off or dry-run is on", () => {
     expect(
@@ -151,42 +157,104 @@ describe("paid-call gates", () => {
 });
 
 describe("SeatData pull caps", () => {
-  it("stops at 20 pulls per run and 25 per ET day", () => {
+  it("stops at the run cap and the ET-day pull cap", () => {
+    expect(HARD_CAPS.seatdataMaxPullsPerRun).toBe(50);
+    expect(HARD_CAPS.seatdataMaxPullsPerEtDay).toBe(50);
     expect(
       canTakeSeatDataPull({
-        runPulls: 20,
+        runPulls: 50,
         pullsToday: 5,
-        maxPerRun: 20,
-        maxPerDay: 25,
+        maxPerRun: 50,
+        maxPerDay: 50,
       }),
     ).toEqual({ ok: false, reason: "run_pull_cap" });
     expect(
       canTakeSeatDataPull({
         runPulls: 4,
-        pullsToday: 25,
-        maxPerRun: 20,
-        maxPerDay: 25,
+        pullsToday: 50,
+        maxPerRun: 50,
+        maxPerDay: 50,
       }),
     ).toEqual({ ok: false, reason: "day_pull_cap" });
     expect(
       canTakeSeatDataPull({
-        runPulls: 19,
-        pullsToday: 24,
-        maxPerRun: 20,
-        maxPerDay: 25,
+        runPulls: 49,
+        pullsToday: 49,
+        maxPerRun: 50,
+        maxPerDay: 50,
       }).ok,
     ).toBe(true);
   });
 
+  it("keeps a $2 ET-day spend cap at $0.04 per charged pull", () => {
+    expect(SEATDATA_PULL_USD).toBe(0.04);
+    expect(SEATDATA_DAILY_SPEND_CAP_USD).toBe(2);
+    expect(seatDataChargeUsd(1)).toBe(0.04);
+    expect(seatDataChargeUsd(true)).toBe(0.04);
+    expect(seatDataChargeUsd(0)).toBe(0);
+    expect(seatDataChargeUsd(false)).toBe(0);
+    expect(seatDataDailyCostUsd(43)).toBe(1.72);
+    expect(seatDataSlateFitsDailyCap(43)).toBe(true);
+    expect(seatDataSlateFitsDailyCap(50)).toBe(true);
+    expect(seatDataSlateFitsDailyCap(51)).toBe(false);
+
+    expect(
+      canTakeSeatDataPull({
+        runPulls: 0,
+        pullsToday: 49,
+        maxPerRun: 50,
+        maxPerDay: 50,
+        usdToday: 1.96,
+      }).ok,
+    ).toBe(true);
+    expect(
+      canTakeSeatDataPull({
+        runPulls: 0,
+        pullsToday: 10,
+        maxPerRun: 50,
+        maxPerDay: 50,
+        usdToday: 1.98,
+      }),
+    ).toEqual({ ok: false, reason: "day_spend_cap" });
+    expect(
+      canTakeSeatDataPull({
+        runPulls: 0,
+        pullsToday: 10,
+        maxPerRun: 50,
+        maxPerDay: 50,
+        usdToday: 2,
+      }),
+    ).toEqual({ ok: false, reason: "day_spend_cap" });
+
+    const charged = recordSeatDataCharge(emptySourceSpend(), "2026-09-11", 0.04);
+    expect(charged.pullsToday).toBe(1);
+    expect(charged.usdToday).toBe(0.04);
+    const again = recordSeatDataCharge(charged, "2026-09-11", 0.04);
+    expect(again.usdToday).toBe(0.08);
+    const free = recordSeatDataCharge(again, "2026-09-11", 0);
+    expect(free.pullsToday).toBe(2);
+    expect(free.usdToday).toBe(0.08);
+    const nextDay = recordSeatDataCharge(again, "2026-09-12", 0.04);
+    expect(nextDay.pullsToday).toBe(1);
+    expect(nextDay.usdToday).toBe(0.04);
+  });
+
   it("counts pulls on the ET day and resets the next ET day", () => {
-    const after = recordSeatDataPull(emptySourceSpend(), "2026-09-11");
+    const after = recordSeatDataCharge(emptySourceSpend(), "2026-09-11", 0.04);
     expect(after.pullsToday).toBe(1);
+    expect(after.usdToday).toBe(0.04);
     const rolled = rolloverSpend(
       { etDate: "2026-09-11", sources: { seatdata: after, apify: emptySourceSpend() } },
       "2026-09-12",
     );
     expect(rolled.sources.seatdata.pullsToday).toBe(0);
+    expect(rolled.sources.seatdata.usdToday).toBe(0);
     expect(rolled.sources.seatdata.circuitOpenEtDate).toBeNull();
+    const sameDay = rolloverSpend(
+      { etDate: "2026-09-11", sources: { seatdata: after, apify: emptySourceSpend() } },
+      "2026-09-11",
+    );
+    expect(sameDay.sources.seatdata.usdToday).toBe(0.04);
   });
 });
 

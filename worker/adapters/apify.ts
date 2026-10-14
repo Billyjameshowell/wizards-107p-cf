@@ -1,3 +1,10 @@
+/**
+ * SeatGeek list prices via Apify. Production leaves this source off
+ * (`SOURCES=seatdata`). `ahmed_jasarevic~seatgeek-scraper` returns no Capital One
+ * Arena Wizards rows, and the free fallbacks that were tried (Ticketmaster
+ * Discovery, a Capital One Arena venue search, TicketData) do not return
+ * section 107 prices. `SOURCES=seatdata,apify` turns this adapter back on.
+ */
 import type { ObservedPull } from "../../src/shared/archive";
 import {
   apifyActorInput,

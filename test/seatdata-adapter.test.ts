@@ -94,9 +94,12 @@ describe("runSeatData", () => {
       expect(row.listingCount).toBe(5003);
       expect((row.listings as unknown[]).length).toBe(3);
       expect(row.raw).toEqual({ has_refreshed: 1, listing_total: 5003, comp_listings: 3 });
+      expect(row.paid).toBe(true);
+      expect(row.costUsd).toBe(0.04);
     }
     // One checkpoint for the paid attempt, then one per paid pull.
     expect(saved.map((spend) => spend.sources.seatdata.pullsToday)).toEqual([0, 1, 2, 3]);
+    expect(saved.map((spend) => spend.sources.seatdata.usdToday)).toEqual([0, 0.04, 0.08, 0.12]);
   });
 
   it("caps listing calls per run even when SeatData serves cached (unpaid) data", async () => {
@@ -109,5 +112,26 @@ describe("runSeatData", () => {
     expect(calls.filter((url) => url.includes("/listings/get"))).toHaveLength(2);
     expect(out.result.pulls).toBe(0);
     expect(out.observations.some((row) => row.error === "run_fetch_cap")).toBe(true);
+    for (const row of out.observations.filter((item) => item.gameDate)) {
+      expect(row.costUsd).toBe(0);
+      expect(row.paid).toBe(false);
+    }
+  });
+
+  it("stops before a listings call that would pass the $2 day cap", async () => {
+    const calls = mockSeatData(1);
+    const spend = emptySpendState("2026-10-08");
+    spend.sources.seatdata.usdToday = 1.98;
+    spend.sources.seatdata.pullsToday = 10;
+    spend.sources.seatdata.lastPullEtDate = "2026-10-08";
+    const out = await runSeatData(
+      { env: env(), games, now: new Date("2026-10-08T21:00:00Z") },
+      spend,
+      "2026-10-08",
+    );
+    expect(calls.filter((url) => url.includes("/listings/get"))).toHaveLength(0);
+    expect(out.result.pulls).toBe(0);
+    expect(out.observations.some((row) => row.error === "day_spend_cap")).toBe(true);
+    expect(out.spend.sources.seatdata.usdToday).toBe(1.98);
   });
 });
