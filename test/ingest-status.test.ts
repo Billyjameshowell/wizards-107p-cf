@@ -124,13 +124,14 @@ describe("admin sign-in", () => {
 describe("production wrangler vars", () => {
   const config = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 
-  it("ships ingest on and dry run off, and does not raise caps", () => {
+  it("ships ingest on and dry run off, with the $2 SeatData ceilings", () => {
     expect(config).toContain('"INGEST_ENABLED": "true"');
     expect(config).toContain('"DRY_RUN": "false"');
     expect(config).not.toContain('"INGEST_ENABLED": "false"');
     expect(config).not.toContain('"DRY_RUN": "true"');
-    expect(config).toContain('"SEATDATA_MAX_PULLS_PER_RUN": "20"');
-    expect(config).toContain('"SEATDATA_MAX_PULLS_PER_ET_DAY": "25"');
+    expect(config).toContain('"SOURCES": "seatdata"');
+    expect(config).toContain('"SEATDATA_MAX_PULLS_PER_RUN": "50"');
+    expect(config).toContain('"SEATDATA_MAX_PULLS_PER_ET_DAY": "50"');
     expect(config).not.toContain("SEATDATA_FETCH_SALES");
     expect(config).toContain('"APIFY_MAX_TOTAL_CHARGE_USD": "0.50"');
     expect(config).toContain('"APIFY_MAX_EVENTS": "50"');

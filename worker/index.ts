@@ -5,6 +5,7 @@ import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
 import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
+import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { trendsResponse } from "./trends";
 
@@ -28,6 +29,10 @@ export default {
 
     if (url.pathname === "/admin/instant-offer" && request.method === "POST") {
       return instantOfferFormResponse(request, env);
+    }
+
+    if (url.pathname === "/api/freshness") {
+      return freshnessResponse(env, request);
     }
 
     if (url.pathname === "/api/book" && request.method === "GET") {

@@ -190,3 +190,56 @@
 .trends-table tbody td:first-child {
   background-color: var(--color-card);
 }
+
+/* Same green / amber / red as the admin freshness pills. */
+.checked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.checked-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.checked-badge.fresh {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #065f46;
+}
+
+.checked-badge.fresh i {
+  background: #10b981;
+}
+
+.checked-badge.aging {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.checked-badge.aging i {
+  background: #f59e0b;
+}
+
+.checked-badge.stale {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.checked-badge.stale i {
+  background: #ef4444;
+}

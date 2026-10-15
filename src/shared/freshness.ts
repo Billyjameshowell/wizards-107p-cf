@@ -30,6 +30,84 @@ export function freshness(at: string | null | undefined, now: Date = new Date())
   return { tone, label: ageLabel(hours), hours };
 }
 
+/** "checked 5h ago" / "checked just now" / "never checked", same tones as freshness(). */
+export function checkedAgo(at: string | null | undefined, now: Date = new Date()): Freshness {
+  const base = freshness(at, now);
+  if (base.hours == null) return { tone: "stale", label: "never checked", hours: null };
+  if (base.hours < 1) return { ...base, label: "checked just now" };
+  return { ...base, label: `checked ${Math.floor(base.hours)}h ago` };
+}
+
+/** Red-badge rule: never checked, or 72h and older. */
+export function isStaleCheck(at: string | null | undefined, now: Date = new Date()): boolean {
+  const hours = freshness(at, now).hours;
+  return hours == null || hours >= AGING_HOURS;
+}
+
+export type FreshnessSourceRow = {
+  source: string;
+  lastCheckedAt: string | null;
+  ageHours: number | null;
+  stale: boolean;
+};
+
+export type FreshnessGameRow = {
+  date: string;
+  opponent: string;
+  lastCheckedAt: string | null;
+  ageHours: number | null;
+  stale: boolean;
+};
+
+export type FreshnessReport = {
+  asof: string;
+  staleAfterHours: number;
+  sources: FreshnessSourceRow[];
+  games: FreshnessGameRow[];
+};
+
+const TRACKED_SOURCES = ["seatdata", "apify"] as const;
+
+function roundAge(hours: number | null): number | null {
+  if (hours == null) return null;
+  return Math.round(hours * 10) / 10;
+}
+
+function checkedFields(
+  at: string | null | undefined,
+  now: Date,
+): { lastCheckedAt: string | null; ageHours: number | null; stale: boolean } {
+  const snap = freshness(at, now);
+  return {
+    lastCheckedAt: snap.hours == null ? null : (at ?? null),
+    ageHours: roundAge(snap.hours),
+    stale: snap.hours == null || snap.hours >= AGING_HOURS,
+  };
+}
+
+/** Public freshness payload. Sources always include seatdata and apify. */
+export function buildFreshnessReport(args: {
+  now: Date;
+  games: readonly { date: string; opponent: string; comp_checked_at?: string | null }[];
+  sourceCheckedAt?: Readonly<Record<string, string | null | undefined>>;
+}): FreshnessReport {
+  return {
+    asof: args.now.toISOString(),
+    staleAfterHours: AGING_HOURS,
+    sources: TRACKED_SOURCES.map((source) => ({
+      source,
+      ...checkedFields(args.sourceCheckedAt?.[source], args.now),
+    })),
+    games: [...args.games]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((game) => ({
+        date: game.date,
+        opponent: game.opponent,
+        ...checkedFields(game.comp_checked_at, args.now),
+      })),
+  };
+}
+
 /** Latest of several timestamps (ISO or YYYY-MM-DD), or null. */
 export function latestOf(values: readonly (string | null | undefined)[]): string | null {
   let best: string | null = null;

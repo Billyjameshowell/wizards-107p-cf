@@ -4,6 +4,7 @@ import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@s
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { SeatPrice } from "@/components/SeatPrice";
+import { CheckedBadge } from "@/components/CheckedBadge";
 import { FreshBadge, FreshRow } from "@/components/FreshBadge";
 import { latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
@@ -320,7 +321,7 @@ function GameCard({
           <DaysOut date={game.date} todayEt={todayEt} />
           <PreseasonMark type={game.type} />
           <StatusBadge status={status} game={game} />
-          <FreshBadge source="Comps" at={game.comp_checked_at} className="text-[11px]" />
+          <CheckedBadge at={game.comp_checked_at} />
           <a
             href={`/trends/${game.date}`}
             className="text-sm font-semibold text-navy underline underline-offset-2"
@@ -827,7 +828,7 @@ export function TicketBook({
                       <span className="font-semibold text-navy">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />{" "}
                       <StatusBadge status={status} game={game} />{" "}
-                      <FreshBadge source="Comps" at={game.comp_checked_at} className="text-[11px]" />
+                      <CheckedBadge at={game.comp_checked_at} />
                       <a
                         href={`/trends/${game.date}`}
                         className="mt-1 block text-sm font-semibold text-navy underline underline-offset-2"

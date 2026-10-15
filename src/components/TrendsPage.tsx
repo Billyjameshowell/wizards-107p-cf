@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CheckedBadge } from "@/components/CheckedBadge";
 import { FreshBadge, FreshRow } from "@/components/FreshBadge";
 import { cn } from "@/lib/utils";
 
@@ -665,7 +666,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
           {game.type === "preseason" ? " · Preseason" : ""}
         </p>
         <FreshRow className="mt-2">
-          <FreshBadge source="Comps" at={game.compsCheckedAt} />
+          <CheckedBadge at={game.compsCheckedAt} />
           {game.instantOffer ? <FreshBadge source="Instant offer" at={game.instantOffer.seenAt} /> : null}
         </FreshRow>
       </header>
