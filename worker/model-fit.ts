@@ -17,6 +17,7 @@ import { ensureArchive } from "./archive-store";
 import { loadInstantOffers } from "./instant-offers";
 import { insertProbableSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
+import { persistSuggestedAsks } from "./suggested-asks";
 import { loadTrendListings, loadTrendPulls, toSeed } from "./trends";
 
 const INSERT_FIT = `INSERT INTO price_model_fits (
@@ -29,6 +30,11 @@ export async function refitPriceModel(env: Env, trigger: string, now = new Date(
     await insertModelFit(env, trigger, now);
   } catch (error) {
     console.error("price model fit", error);
+  }
+  try {
+    await persistSuggestedAsks(env, now, { fillToday: true });
+  } catch (error) {
+    console.error("suggested asks", error);
   }
   try {
     await ensureArchive(env);

@@ -7,6 +7,7 @@ import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
 import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
+import { gridResponse } from "./grid";
 import { trendsResponse } from "./trends";
 
 const PRIVATE = {
@@ -43,6 +44,10 @@ export default {
 
     if (url.pathname === "/api/trends" && request.method === "GET") {
       return trendsResponse(env);
+    }
+
+    if (url.pathname === "/api/grid") {
+      return gridResponse(env, request);
     }
 
     if (url.pathname === "/api/export" && request.method === "GET") {
