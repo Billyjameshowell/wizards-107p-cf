@@ -101,56 +101,72 @@ async function hasTodaySnapshot(env: Env, today: string): Promise<boolean> {
 /**
  * Backfill past days once, then save today's model ask.
  * Inserts use ON CONFLICT DO NOTHING, so a saved ask is never replaced.
- * `fillToday` always tries today's insert (cron). A page view only writes
- * today when that snapshot is still missing.
+ * Cron only (`fillToday` from the morning refit). A page request must not call this.
+ * After the write, the precomputed grid in KV is refreshed.
  */
 export async function persistSuggestedAsks(
   env: Env,
   now = new Date(),
   options?: { fillToday?: boolean; inputs?: SuggestionInputs },
 ): Promise<void> {
-  await ensureArchive(env);
-  const today = etYmd(now);
-  const recordedAt = now.toISOString();
-  const inputs = options?.inputs ?? (await loadSuggestionInputs(env));
-  if (!(await backfillDone(env))) {
-    const recomputed = planRecomputedAsks({
+  try {
+    await ensureArchive(env);
+    const today = etYmd(now);
+    const recordedAt = now.toISOString();
+    const inputs = options?.inputs ?? (await loadSuggestionInputs(env));
+    if (!(await backfillDone(env))) {
+      const recomputed = planRecomputedAsks({
+        asOf: today,
+        today,
+        recordedAt,
+        games: inputs.games,
+        pulls: inputs.pulls,
+        listings: inputs.listings,
+        instantOffers: inputs.instantOffers,
+      });
+      await insertSuggested(env, recomputed);
+      await markBackfill(env, now);
+    }
+    if (!options?.fillToday && (await hasTodaySnapshot(env, today))) return;
+    const snapshot = planSnapshotAsks({
       asOf: today,
-      today,
       recordedAt,
       games: inputs.games,
       pulls: inputs.pulls,
       listings: inputs.listings,
       instantOffers: inputs.instantOffers,
     });
-    await insertSuggested(env, recomputed);
-    await markBackfill(env, now);
+    await insertSuggested(env, snapshot);
+  } finally {
+    await refreshGridCache(env, now);
   }
-  if (!options?.fillToday && (await hasTodaySnapshot(env, today))) return;
-  const snapshot = planSnapshotAsks({
-    asOf: today,
-    recordedAt,
-    games: inputs.games,
-    pulls: inputs.pulls,
-    listings: inputs.listings,
-    instantOffers: inputs.instantOffers,
-  });
-  await insertSuggested(env, snapshot);
 }
 
-export async function loadSuggestedAsks(env: Env): Promise<SuggestedAskDraft[]> {
-  await ensureArchive(env);
+async function refreshGridCache(env: Env, now: Date): Promise<void> {
+  try {
+    const { refreshPriceGrid } = await import("./grid");
+    await refreshPriceGrid(env, now);
+  } catch (error) {
+    console.error("price grid", error);
+  }
+}
+
+/** `ready` skips CREATE TABLE. The cron calls this after ensureArchive. */
+export async function loadSuggestedAsks(env: Env, options?: { ready?: boolean }): Promise<SuggestedAskDraft[]> {
+  if (!options?.ready) await ensureArchive(env);
   const rows: SuggestedAskDraft[] = [];
-  let offset = 0;
+  let after = 0;
   for (;;) {
     const page = await env.DB.prepare(
-      `SELECT external_id, game_date, et_date, recorded_at, ask, origin, source, pulled_at, method
+      `SELECT id, external_id, game_date, et_date, recorded_at, ask, origin, source, pulled_at, method
        FROM suggested_asks
+       WHERE id > ?
        ORDER BY id
-       LIMIT 400 OFFSET ?`,
+       LIMIT 400`,
     )
-      .bind(offset)
+      .bind(after)
       .all<{
+        id: number;
         external_id: string;
         game_date: string;
         et_date: string;
@@ -163,6 +179,7 @@ export async function loadSuggestedAsks(env: Env): Promise<SuggestedAskDraft[]> 
       }>();
     const batch = page.results ?? [];
     for (const row of batch) {
+      after = row.id;
       if (row.origin !== "snapshot" && row.origin !== "recomputed") continue;
       if (row.method !== "model" && row.method !== "day-rules") continue;
       rows.push({
@@ -178,7 +195,6 @@ export async function loadSuggestedAsks(env: Env): Promise<SuggestedAskDraft[]> 
       });
     }
     if (batch.length < 400) break;
-    offset += batch.length;
   }
   return rows;
 }

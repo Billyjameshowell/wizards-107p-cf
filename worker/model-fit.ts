@@ -32,6 +32,7 @@ export async function refitPriceModel(env: Env, trigger: string, now = new Date(
     console.error("price model fit", error);
   }
   try {
+    // Writes today's snapshot (and the one-time backfill) and refreshes the KV grid.
     await persistSuggestedAsks(env, now, { fillToday: true });
   } catch (error) {
     console.error("suggested asks", error);

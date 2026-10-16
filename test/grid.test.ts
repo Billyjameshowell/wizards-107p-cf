@@ -12,14 +12,17 @@ import {
   planSnapshotAsks,
   pointCaption,
   recoverPullMetrics,
+  slicePriceGrid,
   suggestedExternalId,
   type GridPull,
+  type PriceGrid,
   type SuggestedAskDraft,
 } from "@shared/grid";
 import { askOffers } from "@shared/price-model";
 import { daysUntil } from "@shared/pricing";
 import type { TrendListing, TrendPull, TrendsGameSeed } from "@shared/trends";
-import { fillPullsFromArchive, gridResponse } from "../worker/grid";
+import { fillPullsFromArchive, GRID_CACHE_KEY, GRID_LISTING_SQL, GRID_PULL_SQL, gridResponse, refreshPriceGrid } from "../worker/grid";
+import { persistSuggestedAsks } from "../worker/suggested-asks";
 
 function seed(partial: Partial<TrendsGameSeed> & Pick<TrendsGameSeed, "date" | "opponent">): TrendsGameSeed {
   return {
@@ -403,8 +406,55 @@ describe("R2 archive fallback", () => {
   });
 });
 
+describe("slicePriceGrid", () => {
+  const grid: PriceGrid = {
+    asof: "2026-10-16T16:00:00.000Z",
+    today: "2026-10-16",
+    metrics: [
+      { id: "suggested", label: "Suggested price", kind: "price" },
+      { id: "median", label: "Median", kind: "price" },
+      { id: "get_in", label: "Get-in", kind: "price" },
+    ],
+    days: ["2026-10-16", "2026-10-15"],
+    games: [
+      {
+        date: "2026-10-21",
+        opponent: "Milwaukee Bucks",
+        weekday: "Wed",
+        cells: {
+          "2026-10-15": {
+            suggested: point(),
+            get_in: point(),
+          },
+        },
+      },
+      {
+        date: "2026-10-22",
+        opponent: "Detroit Pistons",
+        weekday: "Thu",
+        cells: { "2026-10-16": { median: point() } },
+      },
+    ],
+  };
+
+  it("returns the same object when nothing is filtered", () => {
+    expect(slicePriceGrid(grid)).toBe(grid);
+    expect(slicePriceGrid(grid, { metrics: null, team: "  " })).toBe(grid);
+  });
+
+  it("keeps the asked-for metrics and the matching teams", () => {
+    const sliced = slicePriceGrid(grid, { metrics: ["get_in", "suggested"], team: "bucks" });
+    expect(sliced.metrics.map((metric) => metric.id)).toEqual(["suggested", "get_in"]);
+    expect(sliced.games.map((game) => game.opponent)).toEqual(["Milwaukee Bucks"]);
+    expect(sliced.days).toEqual(["2026-10-15"]);
+    expect(sliced.games[0]?.cells["2026-10-15"]?.suggested?.value).toBe(10);
+    expect(sliced.games[0]?.cells["2026-10-15"]?.get_in?.value).toBe(10);
+    expect(sliced.games[0]?.cells["2026-10-15"]?.median).toBeUndefined();
+  });
+});
+
 describe("GET /api/grid", () => {
-  it("returns the same JSON, keeps the first snapshot, and does not require a bearer token", async () => {
+  it("serves the cached JSON, slices filters, and does not recompute", async () => {
     const db = new DatabaseSync(":memory:");
     for (const name of [
       "0001_init.sql",
@@ -414,16 +464,19 @@ describe("GET /api/grid", () => {
       "0005_likely_sales.sql",
       "0006_instant_offers.sql",
       "0007_suggested_asks.sql",
+      "0008_grid_read.sql",
     ]) {
       db.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
     }
-    const env = fakeEnv(db);
+    const book = memoryBook();
+    const env = fakeEnv(db, book);
+    const cachedRead = fakeEnv(db, book, { dbThrows: true });
     const now = new Date("2026-10-16T16:00:00.000Z");
     db.prepare(
       `INSERT INTO price_pulls (
          external_id, pulled_at, et_date, trigger_name, source, game_date, opponent, status,
-         paid, excluded_dump, median, get_in, comp_count
-       ) VALUES (?, ?, ?, 'http', 'seatdata', ?, ?, 'ok', 0, 0, ?, ?, ?)`,
+         paid, excluded_dump, median, get_in, comp_count, payload_json
+       ) VALUES (?, ?, ?, 'http', 'seatdata', ?, ?, 'ok', 0, 0, ?, ?, ?, ?)`,
     ).run(
       "test-pull-1",
       "2026-10-15T15:00:00.000Z",
@@ -431,51 +484,159 @@ describe("GET /api/grid", () => {
       "2026-10-21",
       "Milwaukee Bucks",
       188,
-      90,
+      null,
       6,
+      JSON.stringify({ get_in: 33, going_price: 180 }),
     );
 
-    const response = await gridResponse(env, new Request("https://book.example/api/grid?metrics=suggested,get_in&team=bucks"), now);
+    const missing = await gridResponse(cachedRead, new Request("https://book.example/api/grid"));
+    expect(missing.status).toBe(503);
+
+    await refreshPriceGrid(env, now);
+    const asksAfterRefresh = db.prepare(`SELECT COUNT(*) AS n FROM suggested_asks`).get() as { n: number };
+    expect(asksAfterRefresh.n).toBe(0);
+
+    const cached = await gridResponse(cachedRead, new Request("https://book.example/api/grid"));
+    expect(cached.status).toBe(200);
+    expect(await cached.text()).toBe(book.values.get(GRID_CACHE_KEY));
+
+    const response = await gridResponse(
+      cachedRead,
+      new Request("https://book.example/api/grid?metrics=suggested,get_in,comps&team=bucks"),
+    );
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      days: string[];
-      metrics: { id: string }[];
-      games: { date: string; opponent: string; cells: Record<string, { suggested?: { value: number; origin: string }; get_in?: { value: number; source: string } }> }[];
-    };
-    expect(body.metrics.map((metric) => metric.id)).toEqual(["suggested", "get_in"]);
+    const body = (await response.json()) as PriceGrid;
+    expect(body.metrics.map((metric) => metric.id)).toEqual(["suggested", "get_in", "comps"]);
     expect(body.games.every((game) => game.opponent.toLowerCase().includes("buck"))).toBe(true);
     const bucks = body.games.find((game) => game.date === "2026-10-21");
-    expect(bucks?.cells["2026-10-15"]?.get_in).toMatchObject({ value: 90, source: "seatdata" });
-    expect(bucks?.cells["2026-08-26"]?.get_in?.value).toBe(33);
-    const suggested = bucks?.cells["2026-10-15"]?.suggested;
-    expect(suggested?.origin === "recomputed" || suggested?.origin === "snapshot").toBe(true);
+    expect(bucks?.cells["2026-10-15"]?.get_in).toMatchObject({ value: 33, source: "seatdata" });
+    expect(bucks?.cells["2026-10-15"]?.comps).toMatchObject({ value: 180, source: "seatdata" });
+    expect(bucks?.cells["2026-10-15"]?.suggested).toBeUndefined();
 
+    db.prepare(`UPDATE price_pulls SET get_in = 12345 WHERE external_id = ?`).run("test-pull-1");
+    const stale = await gridResponse(cachedRead, new Request("https://book.example/api/grid?metrics=get_in&team=bucks"));
+    const staleBody = (await stale.json()) as PriceGrid;
+    expect(staleBody.games.find((game) => game.date === "2026-10-21")?.cells["2026-10-15"]?.get_in?.value).toBe(33);
+
+    await refreshPriceGrid(env, now);
+    const fresh = await gridResponse(cachedRead, new Request("https://book.example/api/grid?metrics=get_in&team=bucks"));
+    const freshBody = (await fresh.json()) as PriceGrid;
+    expect(freshBody.games.find((game) => game.date === "2026-10-21")?.cells["2026-10-15"]?.get_in?.value).toBe(12345);
+
+    const denied = await gridResponse(cachedRead, new Request("https://book.example/api/grid", { method: "POST" }));
+    expect(denied.status).toBe(405);
+  });
+
+  it("writes suggested asks and the cache from the cron path only", async () => {
+    const db = new DatabaseSync(":memory:");
+    for (const name of [
+      "0001_init.sql",
+      "0002_price_history.sql",
+      "0003_price_archive.sql",
+      "0004_price_model.sql",
+      "0005_likely_sales.sql",
+      "0006_instant_offers.sql",
+      "0007_suggested_asks.sql",
+      "0008_grid_read.sql",
+    ]) {
+      db.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+    }
+    db.prepare(
+      `INSERT INTO price_pulls (
+         external_id, pulled_at, et_date, trigger_name, source, game_date, opponent, status,
+         paid, excluded_dump, median, get_in, comp_count
+       ) VALUES (?, ?, ?, 'cron', 'seatdata', ?, ?, 'ok', 0, 0, 188, 90, 6)`,
+    ).run("cron-pull", "2026-10-15T15:00:00.000Z", "2026-10-15", "2026-10-21", "Milwaukee Bucks");
+    const book = memoryBook();
+    const env = fakeEnv(db, book);
+    const now = new Date("2026-10-16T16:00:00.000Z");
+
+    await persistSuggestedAsks(env, now, { fillToday: true });
     const saved = db
       .prepare(`SELECT external_id, ask, origin FROM suggested_asks WHERE game_date = ? AND et_date = ?`)
       .get("2026-10-21", "2026-10-15") as { external_id: string; ask: number; origin: string };
     expect(saved.origin).toBe("recomputed");
-    db.prepare(`UPDATE suggested_asks SET ask = 12345 WHERE external_id = ?`).run(saved.external_id);
+    expect(saved.ask).toBeGreaterThan(0);
 
-    const again = await gridResponse(env, new Request("https://book.example/api/grid?metrics=suggested&team=bucks"), now);
-    const next = (await again.json()) as {
-      games: { date: string; cells: Record<string, { suggested?: { value: number } }> }[];
-    };
-    expect(next.games.find((game) => game.date === "2026-10-21")?.cells["2026-10-15"]?.suggested?.value).toBe(12345);
+    await persistSuggestedAsks(env, now, { fillToday: true });
+    const again = db.prepare(`SELECT ask FROM suggested_asks WHERE external_id = ?`).get(saved.external_id) as { ask: number };
+    expect(again.ask).toBe(saved.ask);
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM suggested_asks WHERE external_id = ?`).get(saved.external_id) as { n: number }).n).toBe(1);
 
-    const denied = await gridResponse(env, new Request("https://book.example/api/grid", { method: "POST" }), now);
-    expect(denied.status).toBe(405);
+    const response = await gridResponse(env, new Request("https://book.example/api/grid?metrics=suggested&team=bucks"));
+    const body = (await response.json()) as PriceGrid;
+    expect(body.games.find((game) => game.date === "2026-10-21")?.cells["2026-10-15"]?.suggested).toMatchObject({
+      value: saved.ask,
+      origin: "recomputed",
+    });
 
+    const asks = readFileSync(new URL("../worker/suggested-asks.ts", import.meta.url), "utf8");
+    const fit = readFileSync(new URL("../worker/model-fit.ts", import.meta.url), "utf8");
+    const ingest = readFileSync(new URL("../worker/ingest.ts", import.meta.url), "utf8");
     const index = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
+    const grid = readFileSync(new URL("../worker/grid.ts", import.meta.url), "utf8");
+    expect(index).toContain("runIngest");
+    expect(ingest).toContain("refitPriceModel");
+    expect(fit).toContain("persistSuggestedAsks");
+    expect(asks).toContain("refreshPriceGrid");
+    expect(functionBody(grid, "gridResponse")).not.toContain("persistSuggestedAsks");
+    expect(functionBody(grid, "gridResponse")).not.toContain("ensureArchiveBackfill");
+    expect(functionBody(grid, "gridResponse")).not.toContain("env.DB");
+    expect(functionBody(grid, "gridResponse")).not.toContain("buildPriceGrid");
+    expect(GRID_PULL_SQL).toContain("id > ?");
+    expect(GRID_PULL_SQL).toContain("json_extract(payload_json, '$.going_price')");
+    expect(GRID_PULL_SQL).not.toMatch(/OFFSET/i);
+    expect(GRID_PULL_SQL.replace(/json_extract\(payload_json, '\$\.[^']+'\)/g, "")).not.toContain("payload_json");
+    expect(GRID_LISTING_SQL).toContain("price > 0 AND id > ?");
+    expect(GRID_LISTING_SQL).not.toMatch(/OFFSET/i);
+    const migration = readFileSync(new URL("../migrations/0008_grid_read.sql", import.meta.url), "utf8");
+    expect(migration).toContain("idx_price_pulls_grid");
+    expect(migration).toContain("idx_price_listings_priced");
+    expect(migration).not.toMatch(/UPDATE |DELETE /i);
+
     const gridAt = index.indexOf('"/api/grid"');
     const exportAt = index.indexOf('"/api/export"');
     expect(gridAt).toBeGreaterThan(0);
     expect(exportAt).toBeGreaterThan(gridAt);
     expect(index.slice(gridAt, exportAt)).toContain("gridResponse");
     expect(index.slice(gridAt, exportAt)).not.toContain("authorizeBearer");
-  }, 120_000);
+  });
 });
 
-function fakeEnv(db: DatabaseSync): Env {
+function point() {
+  return {
+    value: 10,
+    pulledAt: "2026-10-15T15:00:00.000Z",
+    source: "seatdata",
+    sourceLabel: "SeatData",
+    legacyLabel: null,
+    origin: "pull" as const,
+    method: null,
+  };
+}
+
+function functionBody(source: string, name: string): string {
+  const start = source.indexOf(`export async function ${name}`);
+  const next = source.indexOf("\nexport ", start + 1);
+  return source.slice(start, next === -1 ? source.length : next);
+}
+
+function memoryBook() {
+  const values = new Map<string, string>();
+  return {
+    values,
+    get: async (key: string) => values.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+}
+
+function fakeEnv(
+  db: DatabaseSync,
+  book: ReturnType<typeof memoryBook> = memoryBook(),
+  options?: { dbThrows?: boolean },
+): Env {
   function exec(sql: string, params: unknown[], mode: "run" | "all" | "first") {
     const statement = db.prepare(sql);
     const bound = params.map((value) => (value === undefined ? null : value));
@@ -488,6 +649,9 @@ function fakeEnv(db: DatabaseSync): Env {
   }
 
   function prepare(sql: string) {
+    if (options?.dbThrows) {
+      throw new Error("d1");
+    }
     const statement = (params: unknown[]) => ({
       sql,
       params,
@@ -502,6 +666,7 @@ function fakeEnv(db: DatabaseSync): Env {
     DB: {
       prepare,
       async batch(statements: { sql: string; all: () => Promise<unknown>; run: () => Promise<unknown> }[]) {
+        if (options?.dbThrows) throw new Error("d1");
         const results = [];
         for (const statement of statements) {
           results.push(/returning/i.test(statement.sql) ? await statement.all() : await statement.run());
@@ -509,5 +674,6 @@ function fakeEnv(db: DatabaseSync): Env {
         return results;
       },
     },
+    BOOK: book,
   } as unknown as Env;
 }

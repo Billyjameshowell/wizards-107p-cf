@@ -1,12 +1,47 @@
-import { parseGridMetrics, pullNeedsArchive, recoverPullMetrics, buildPriceGrid, type GridPull } from "../src/shared/grid";
+import {
+  buildPriceGrid,
+  parseGridMetrics,
+  pullNeedsArchive,
+  recoverPullMetrics,
+  slicePriceGrid,
+  type GridPull,
+  type PriceGrid,
+} from "../src/shared/grid";
 import { etYmd } from "../src/shared/pricing";
 import type { TrendListing } from "../src/shared/trends";
-import { ensureArchiveBackfill } from "./archive-store";
-import { loadSuggestionInputs, loadSuggestedAsks, persistSuggestedAsks } from "./suggested-asks";
+import { loadLiveBook } from "./store";
+import { loadSuggestedAsks } from "./suggested-asks";
+import { toSeed } from "./trends";
 
-const HEADERS = { "Cache-Control": "no-store" };
+const HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
 const PAGE = 400;
 const ARCHIVE_CAP = 30;
+
+/** KV copy of the full grid. Requests read this and never rebuild it. */
+export const GRID_CACHE_KEY = "grid:v1";
+
+/**
+ * Game pulls only, in id order. Payload stays in D1; the few fields the grid
+ * reads are extracted here. `idx_price_pulls_grid` is the id range of those rows.
+ */
+export const GRID_PULL_SQL = `SELECT id, pulled_at, et_date, source, game_date, opponent,
+            median, get_in, est_ask, live_ask, listing_count, comp_count, legacy_label, raw_key,
+            json_extract(payload_json, '$.going_price') AS going_price,
+            json_extract(payload_json, '$.ask_per_ticket') AS ask_per_ticket,
+            json_extract(payload_json, '$.get_in') AS payload_get_in,
+            json_extract(payload_json, '$.est_107_ask') AS payload_est,
+            json_extract(payload_json, '$.live_107_ask') AS payload_live
+     FROM price_pulls
+     WHERE game_date IS NOT NULL AND id > ?
+     ORDER BY id
+     LIMIT ?`;
+
+/** Priced listings only. `idx_price_listings_priced` covers this id range. */
+export const GRID_LISTING_SQL = `SELECT id, pull_id, section, row, quantity, price, active
+     FROM price_listings
+     WHERE price > 0 AND id > ?
+     ORDER BY id
+     LIMIT ?`;
 
 type PullSql = {
   id: number;
@@ -22,33 +57,29 @@ type PullSql = {
   listing_count: number | null;
   comp_count: number | null;
   legacy_label: string | null;
-  payload_json: string | null;
   raw_key: string | null;
+  going_price: number | string | null;
+  ask_per_ticket: number | string | null;
+  payload_get_in: number | string | null;
+  payload_est: number | string | null;
+  payload_live: number | string | null;
 };
 
-function parsePayload(value: string | null): unknown {
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return null;
-  }
+function extractedPayload(row: PullSql): Record<string, number | string> | null {
+  const payload: Record<string, number | string> = {};
+  if (row.going_price != null) payload.going_price = row.going_price;
+  if (row.ask_per_ticket != null) payload.ask_per_ticket = row.ask_per_ticket;
+  if (row.payload_get_in != null) payload.get_in = row.payload_get_in;
+  if (row.payload_est != null) payload.est_107_ask = row.payload_est;
+  if (row.payload_live != null) payload.live_107_ask = row.payload_live;
+  return Object.keys(payload).length > 0 ? payload : null;
 }
 
 async function loadGridPulls(env: Env): Promise<GridPull[]> {
   const pulls: GridPull[] = [];
-  let offset = 0;
+  let after = 0;
   for (;;) {
-    const page = await env.DB.prepare(
-      `SELECT id, pulled_at, et_date, source, game_date, opponent, median, get_in, est_ask, live_ask,
-              listing_count, comp_count, legacy_label, payload_json, raw_key
-       FROM price_pulls
-       WHERE game_date IS NOT NULL
-       ORDER BY id
-       LIMIT ? OFFSET ?`,
-    )
-      .bind(PAGE, offset)
-      .all<PullSql>();
+    const page = await env.DB.prepare(GRID_PULL_SQL).bind(after, PAGE).all<PullSql>();
     const rows = page.results ?? [];
     for (const row of rows) {
       pulls.push({
@@ -65,29 +96,24 @@ async function loadGridPulls(env: Env): Promise<GridPull[]> {
         listingCount: row.listing_count,
         compCount: row.comp_count,
         legacyLabel: row.legacy_label,
-        payload: parsePayload(row.payload_json),
+        payload: extractedPayload(row),
         rawKey: row.raw_key,
       });
+      after = row.id;
     }
     if (rows.length < PAGE) break;
-    offset += rows.length;
   }
   return pulls;
 }
 
 async function loadGridListings(env: Env): Promise<TrendListing[]> {
   const listings: TrendListing[] = [];
-  let offset = 0;
+  let after = 0;
   for (;;) {
-    const page = await env.DB.prepare(
-      `SELECT pull_id, section, row, quantity, price, active
-       FROM price_listings
-       WHERE price > 0
-       ORDER BY id
-       LIMIT ? OFFSET ?`,
-    )
-      .bind(PAGE, offset)
+    const page = await env.DB.prepare(GRID_LISTING_SQL)
+      .bind(after, PAGE)
       .all<{
+        id: number;
         pull_id: number;
         section: string | null;
         row: string | null;
@@ -105,9 +131,9 @@ async function loadGridListings(env: Env): Promise<TrendListing[]> {
         price: row.price,
         active: row.active,
       });
+      after = row.id;
     }
     if (rows.length < PAGE) break;
-    offset += rows.length;
   }
   return listings;
 }
@@ -130,7 +156,7 @@ async function readArchiveJson(bucket: R2Bucket, key: string): Promise<unknown |
   }
 }
 
-/** Fill pulls whose prices live only in the gzipped R2 body. */
+/** Fill pulls whose prices live only in the gzipped R2 body. Cron rebuild only. */
 export async function fillPullsFromArchive(env: Env, pulls: GridPull[], listings: TrendListing[]): Promise<void> {
   const bucket = env.ARCHIVE;
   if (!bucket) return;
@@ -157,30 +183,56 @@ export async function fillPullsFromArchive(env: Env, pulls: GridPull[], listings
   }
 }
 
-export async function gridResponse(env: Env, request: Request, now = new Date()): Promise<Response> {
+/**
+ * Build the full grid from D1 and store it in KV.
+ * Called from the morning cron, after suggested-ask writes. Not from a page request.
+ */
+export async function refreshPriceGrid(env: Env, now = new Date()): Promise<void> {
+  const book = await loadLiveBook(env);
+  const [pulls, listings, suggested] = await Promise.all([
+    loadGridPulls(env),
+    loadGridListings(env),
+    loadSuggestedAsks(env, { ready: true }),
+  ]);
+  await fillPullsFromArchive(env, pulls, listings);
+  const grid = buildPriceGrid({
+    now,
+    today: etYmd(now),
+    games: book.games.map(toSeed),
+    pulls,
+    listings,
+    suggested,
+  });
+  await env.BOOK.put(GRID_CACHE_KEY, JSON.stringify(grid));
+}
+
+/**
+ * Serve the cached grid. Metric and team filters are a slice of that JSON.
+ * This does not read D1, recompute suggestions, or backfill.
+ */
+export async function gridResponse(env: Env, request: Request): Promise<Response> {
   if (request.method !== "GET") {
     return Response.json({ error: "method_not_allowed" }, { status: 405, headers: { ...HEADERS, Allow: "GET" } });
   }
+  let raw: string | null = null;
   try {
-    await ensureArchiveBackfill(env);
-    const inputs = await loadSuggestionInputs(env);
-    await persistSuggestedAsks(env, now, { inputs });
-    const [pulls, listings, suggested] = await Promise.all([
-      loadGridPulls(env),
-      loadGridListings(env),
-      loadSuggestedAsks(env),
-    ]);
-    await fillPullsFromArchive(env, pulls, listings);
-    const url = new URL(request.url);
-    const grid = buildPriceGrid({
-      now,
-      today: etYmd(now),
-      games: inputs.games,
-      pulls,
-      listings,
-      suggested,
-      metrics: parseGridMetrics(url.searchParams.get("metrics")),
-      team: url.searchParams.get("team"),
+    raw = await env.BOOK.get(GRID_CACHE_KEY);
+  } catch (error) {
+    console.error("grid cache", error);
+  }
+  if (!raw) {
+    return Response.json({ error: "unavailable" }, { status: 503, headers: HEADERS });
+  }
+  const url = new URL(request.url);
+  const metrics = url.searchParams.get("metrics");
+  const team = url.searchParams.get("team");
+  if (!metrics?.trim() && !team?.trim()) {
+    return new Response(raw, { headers: HEADERS });
+  }
+  try {
+    const grid = slicePriceGrid(JSON.parse(raw) as PriceGrid, {
+      metrics: metrics?.trim() ? parseGridMetrics(metrics) : null,
+      team,
     });
     return Response.json(grid, { headers: HEADERS });
   } catch (error) {
