@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
 import type { Book } from "@shared/book";
+import { GridPage } from "./components/GridPage.tsx";
 import { TicketBook } from "./components/TicketBook.tsx";
 import { TrendsPage } from "./components/TrendsPage.tsx";
 
-function isTrendsPath(): boolean {
+function pageKind(): "grid" | "trends" | "book" {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  return path === "/trends" || path.startsWith("/trends/");
+  if (path === "/grid" || path.startsWith("/grid/")) return "grid";
+  if (path === "/trends" || path.startsWith("/trends/")) return "trends";
+  return "book";
 }
 
 export default function App() {
-  if (isTrendsPath()) return <TrendsPage />;
+  const kind = pageKind();
+  if (kind === "grid") return <GridPage />;
+  if (kind === "trends") return <TrendsPage />;
   return <BookApp />;
 }
 

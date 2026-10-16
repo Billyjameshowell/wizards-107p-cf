@@ -132,3 +132,24 @@ export const INSTANT_OFFER_DDL = `CREATE TABLE IF NOT EXISTS instant_offers (
 CREATE INDEX IF NOT EXISTS idx_instant_offers_game
   ON instant_offers (game_date, observed_at);
 `;
+
+/** Daily suggested type-in. Append-only. First row for a game and ET day wins. */
+export const SUGGESTED_ASK_DDL = `CREATE TABLE IF NOT EXISTS suggested_asks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  external_id TEXT NOT NULL UNIQUE,
+  game_date TEXT NOT NULL,
+  et_date TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  ask REAL NOT NULL,
+  origin TEXT NOT NULL,
+  source TEXT NOT NULL,
+  pulled_at TEXT NOT NULL,
+  method TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_suggested_asks_game_day
+  ON suggested_asks (game_date, et_date);
+
+CREATE INDEX IF NOT EXISTS idx_suggested_asks_day
+  ON suggested_asks (et_date);
+`;

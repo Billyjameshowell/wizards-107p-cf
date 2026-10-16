@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { CheckedBadge } from "@/components/CheckedBadge";
 import { FreshBadge, FreshRow } from "@/components/FreshBadge";
+import { SiteNav } from "@/components/SiteNav";
 import { cn } from "@/lib/utils";
 
 type SortKey = "date" | "opponent" | "median" | "change7d" | "changeSinceFirst" | "projection";
@@ -40,9 +41,6 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: "changeSinceFirst", label: "Since first check" },
   { key: "projection", label: "By tip" },
 ];
-
-const navLink =
-  "inline-flex min-h-11 items-center rounded-lg px-1 text-sm font-semibold text-[#f3e6c8] underline decoration-[#f3e6c8]/70 underline-offset-4";
 
 function gameFromLocation(): string | null {
   const path = window.location.pathname.replace(/\/+$/, "");
@@ -103,25 +101,6 @@ function compareGames(a: TrendsGame, b: TrendsGame, key: SortKey, direction: Sor
   const sign = direction === "asc" ? 1 : -1;
   const result = (left - right) * sign;
   return result === 0 ? a.date.localeCompare(b.date) : result;
-}
-
-function SiteNav({ trendsCurrent }: { trendsCurrent: boolean }) {
-  return (
-    <nav aria-label="Site" className="flex shrink-0 items-center gap-3">
-      <a href="/" className={navLink}>
-        Book
-      </a>
-      {trendsCurrent ? (
-        <span className="inline-flex min-h-11 items-center text-sm font-semibold text-white" aria-current="page">
-          Trends
-        </span>
-      ) : (
-        <a href="/trends" className={navLink}>
-          Trends
-        </a>
-      )}
-    </nav>
-  );
 }
 
 function ChangeText({ value, large = false }: { value: number | null; large?: boolean }) {
@@ -508,11 +487,11 @@ function SeasonView({ report }: { report: TrendsReport }) {
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
             Capital One Arena · Section {report.section} Row {report.row} · seats {report.seats.join("–")}
           </p>
-          <SiteNav trendsCurrent />
+          <SiteNav current="trends" />
         </div>
         <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Price trends</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">Similar seats, per seat price.</p>
@@ -652,11 +631,11 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
             Capital One Arena · Section {report.section} Row {report.row}
           </p>
-          <SiteNav trendsCurrent={false} />
+          <SiteNav current="trends" />
         </div>
         <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">{game.opponent}</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
