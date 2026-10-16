@@ -36,7 +36,8 @@ export function priceBook(book: Book, todayEt: string): Book {
       planned += sold;
       return { ...game, advised_ask: roundMoney(sold / 2), cash_both_after_fee: sold };
     }
-    if (game.sold) {
+    if (game.sold || (game.date < todayEt && game.sit_or_sell === "Sell")) {
+      // Sold with no amount on file, or played and never sold: no cash to project.
       // Sold with no amount on file: never show a guess as his cash.
       return { ...game, advised_ask: null, cash_both_after_fee: null };
     }

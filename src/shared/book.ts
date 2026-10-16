@@ -55,6 +55,20 @@ export type Game = {
     zone_median?: number | null;
     zone_comp_count?: number | null;
   } | null;
+  /** Newest Ticketmaster Account Manager read for this game (append-only tm_portal table). */
+  tm_portal?: TmPortalRead | null;
+};
+
+export type TmPortalRead = {
+  read_at: string;
+  event_id: string | null;
+  suggested: number | null;
+  range_low: number | null;
+  range_high: number | null;
+  sell_now: number | null;
+  listed_price: number | null;
+  status: string | null;
+  note: string | null;
 };
 
 export type Book = {

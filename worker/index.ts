@@ -9,6 +9,7 @@ import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { gridResponse } from "./grid";
 import { trendsResponse } from "./trends";
+import { latestTmReads, tmPortalResponse } from "./tm-portal";
 
 const PRIVATE = {
   "Cache-Control": "no-store",
@@ -38,7 +39,9 @@ export default {
 
     if (url.pathname === "/api/book" && request.method === "GET") {
       // Re-price on every read so keep amounts and days-out match today.
-      const book = priceBook(await loadLiveBook(env), etDateFrom(new Date()));
+      const [live, tm] = await Promise.all([loadLiveBook(env), latestTmReads(env)]);
+      const priced = priceBook(live, etDateFrom(new Date()));
+      const book = { ...priced, games: priced.games.map((g) => ({ ...g, tm_portal: tm[g.date] ?? null })) };
       return Response.json(book, { headers: { "Cache-Control": "no-store" } });
     }
 
@@ -69,6 +72,10 @@ export default {
 
     if (url.pathname === "/api/instant-offers" && (request.method === "GET" || request.method === "POST")) {
       return instantOfferApiResponse(request, env);
+    }
+
+    if (url.pathname === "/api/tm-portal" && (request.method === "GET" || request.method === "POST")) {
+      return tmPortalResponse(request, env);
     }
 
     if (url.pathname.startsWith("/api/")) {

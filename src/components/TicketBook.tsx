@@ -147,6 +147,24 @@ function StatusBadge({ status, game }: { status: ListingOverride; game: Game }) 
   );
 }
 
+function TmBadge({ game }: { game: Game }) {
+  const tm = game.tm_portal;
+  if (!tm || (tm.suggested == null && tm.listed_price == null)) return null;
+  const when = new Date(tm.read_at).toLocaleString("en-US", {
+    timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  const parts = [
+    tm.suggested != null ? `TM sugg $${tm.suggested}` : null,
+    tm.range_low != null && tm.range_high != null ? `$${tm.range_low}–$${tm.range_high}` : null,
+    tm.sell_now != null ? `Sell Now $${tm.sell_now}` : null,
+  ].filter(Boolean);
+  return (
+    <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900" title={tm.note ?? undefined}>
+      {parts.length ? parts.join(" · ") : `TM listed $${tm.listed_price}`} · read {when} ET
+    </span>
+  );
+}
+
 function StatusCheck({
   label,
   name,
@@ -321,7 +339,7 @@ function GameCard({
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <DaysOut date={game.date} todayEt={todayEt} />
           <PreseasonMark type={game.type} />
-          <StatusBadge status={status} game={game} />
+          <StatusBadge status={status} game={game} /> <TmBadge game={game} />
           <CheckedBadge at={game.comp_checked_at} />
           <a
             href={`/trends/${game.date}`}
@@ -410,6 +428,8 @@ export function TicketBook({
         const live = { ...game, listed: status.listed, sold: status.sold, listed_ask: status.listed_ask };
         const view = seatPriceForGame(game, startingTypeIn(live, overrides[game.date] ?? null), todayEt);
         const soldTotal = soldKeepTotalOf(live);
+        // A game already played and never sold brings nothing; keep it out of the plan.
+        if (soldTotal == null && !live.sold && game.date < todayEt) live.sold = true;
         return {
           source: game,
           view,
@@ -815,7 +835,7 @@ export function TicketBook({
                     <TableCell>
                       <span className="font-semibold text-navy">{game.opponent}</span>{" "}
                       <PreseasonMark type={game.type} />{" "}
-                      <StatusBadge status={status} game={game} />{" "}
+                      <StatusBadge status={status} game={game} /> <TmBadge game={game} />{" "}
                       <CheckedBadge at={game.comp_checked_at} />
                       <a
                         href={`/trends/${game.date}`}
