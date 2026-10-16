@@ -149,6 +149,12 @@ async function refreshGridCache(env: Env, now: Date): Promise<void> {
   } catch (error) {
     console.error("price grid", error);
   }
+  try {
+    const { refreshTrends } = await import("./trends");
+    await refreshTrends(env, now);
+  } catch (error) {
+    console.error("trends cache", error);
+  }
 }
 
 /** `ready` skips CREATE TABLE. The cron calls this after ensureArchive. */
