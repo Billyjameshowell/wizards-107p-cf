@@ -324,8 +324,7 @@ export async function adminStatusResponse(request: Request, env: Env, now = new 
     offers,
     model,
   });
-  const { salesAdminSection, syncSalesFromBook } = await import("./sales");
-  await syncSalesFromBook(env).catch((error) => console.error("sales sync", error));
+  const { salesAdminSection } = await import("./sales");
   const withSales = html.replace("</body>", `${await salesAdminSection(env)}\n</body>`);
   return new Response(request.method === "HEAD" ? null : withSales, { status: 200, headers: HEADERS });
 }

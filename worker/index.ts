@@ -1,7 +1,6 @@
 import { priceBook } from "../src/shared/book-pricing";
 import { authorizeBearer, etDateFrom } from "../src/shared/guardrails";
 import { adminStatusResponse } from "./admin-status";
-import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
 import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
@@ -18,12 +17,8 @@ const PRIVATE = {
 };
 
 export default {
-  async fetch(request, env, ctx) {
-    ctx.waitUntil(
-      ensureArchiveBackfill(env).catch((error) => {
-        console.error("price archive backfill", error);
-      }),
-    );
+  async fetch(request, env, _ctx) {
+    // Archive backfill runs from the daily cron (runIngest), not on every request: saves D1 reads.
     const url = new URL(request.url);
 
     if (url.pathname === "/admin") {
@@ -40,7 +35,6 @@ export default {
 
     if (url.pathname === "/api/book" && request.method === "GET") {
       // Re-price on every read so keep amounts and days-out match today.
-      ctx.waitUntil(syncSalesFromBook(env).catch((error) => console.error("sales sync", error)));
       const [live, tm] = await Promise.all([loadLiveBook(env), latestTmReads(env)]);
       const priced = priceBook(live, etDateFrom(new Date()));
       const book = { ...priced, games: priced.games.map((g) => ({ ...g, tm_portal: tm[g.date] ?? null })) };

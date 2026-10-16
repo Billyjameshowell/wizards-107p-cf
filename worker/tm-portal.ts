@@ -25,8 +25,22 @@ function num(v: unknown): number | null {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
 
-/** Newest read per game. */
+const CACHE_KEY = "tm_portal:latest:v1";
+
+/** Newest read per game, from KV. Rebuilt from D1 only on a miss or after a POST. */
 export async function latestTmReads(env: Env): Promise<Record<string, TmPortalRead>> {
+  try {
+    const cached = await env.BOOK.get(CACHE_KEY);
+    if (cached) return JSON.parse(cached) as Record<string, TmPortalRead>;
+  } catch (error) {
+    console.error("tm_portal cache", error);
+  }
+  const fresh = await latestTmReadsFromDb(env);
+  if (fresh) await env.BOOK.put(CACHE_KEY, JSON.stringify(fresh)).catch(() => undefined);
+  return fresh ?? {};
+}
+
+async function latestTmReadsFromDb(env: Env): Promise<Record<string, TmPortalRead> | null> {
   try {
     await ensure(env);
     const rows = await env.DB.prepare(
@@ -42,7 +56,7 @@ export async function latestTmReads(env: Env): Promise<Record<string, TmPortalRe
     return out;
   } catch (error) {
     console.error("tm_portal", error);
-    return {};
+    return null;
   }
 }
 
@@ -74,5 +88,7 @@ export async function tmPortalResponse(request: Request, env: Env): Promise<Resp
       it.note != null ? String(it.note) : null, now));
   }
   if (stmts.length) await env.DB.batch(stmts);
+  const fresh = await latestTmReadsFromDb(env);
+  if (fresh) await env.BOOK.put(CACHE_KEY, JSON.stringify(fresh));
   return Response.json({ ok: true, inserted: stmts.length }, { headers });
 }

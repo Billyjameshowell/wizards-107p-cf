@@ -97,6 +97,10 @@ export async function salesResponse(request: Request, env: Env): Promise<Respons
   const items = (Array.isArray(body) ? body : [body]) as SaleInput[];
   let inserted = 0;
   try {
+    // Sale-marking path: also pick up any sale the book (Gmail sync) has marked.
+    if (items.length === 1 && (items[0] as unknown as { sync?: boolean })?.sync === true) {
+      return Response.json({ ok: true, inserted: await syncSalesFromBook(env) }, { headers });
+    }
     for (const it of items) if (await recordSale(env, { ...it, source: it?.source ?? "manual" })) inserted += 1;
   } catch (error) {
     return Response.json({ error: String((error as Error).message) }, { status: 400, headers });
