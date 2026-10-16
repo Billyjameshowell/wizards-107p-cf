@@ -90,19 +90,22 @@ export async function loadTrendPulls(env: Env): Promise<TrendPull[]> {
 
 export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
   const listings: TrendListing[] = [];
-  let offset = 0;
+  // Keyset paging (id > last). OFFSET paging re-read every skipped row and made each
+  // trends rebuild read O(n^2 / PAGE) rows, the main D1 free-tier drain.
+  let after = 0;
   for (;;) {
     const page = await env.DB.prepare(
       `SELECT id, pull_id, section, row, quantity, price, active
        FROM price_listings
-       WHERE price > 0
+       WHERE price > 0 AND id > ?
        ORDER BY id
-       LIMIT ? OFFSET ?`,
+       LIMIT ?`,
     )
-      .bind(PAGE, offset)
+      .bind(after, PAGE)
       .all<ListingSql>();
     const rows = page.results ?? [];
     for (const row of rows) {
+      after = row.id;
       listings.push({
         pullId: row.pull_id,
         section: row.section,
@@ -113,7 +116,6 @@ export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
       });
     }
     if (rows.length < PAGE) break;
-    offset += rows.length;
   }
   return listings;
 }
