@@ -655,6 +655,54 @@ function csvCell(value: string | number | null | undefined): string {
   return text;
 }
 
+/**
+ * Cheap view of a stored grid. Drops metrics and games the caller did not ask for.
+ * Days stay newest-first. A blank filter returns the same object.
+ */
+export function slicePriceGrid(
+  grid: PriceGrid,
+  options?: { metrics?: readonly GridMetricId[] | null; team?: string | null },
+): PriceGrid {
+  const metrics = selectedMetrics(options?.metrics);
+  const fullMetrics = metrics.length === GRID_METRICS.length;
+  const team = options?.team?.trim() ?? "";
+  if (!team && fullMetrics) return grid;
+
+  const ids = new Set(metrics.map((metric) => metric.id));
+  const days = new Set<string>();
+  const games: GridGame[] = [];
+  for (const game of grid.games) {
+    if (team && !gameMatchesQuery({ date: game.date, weekday: game.weekday, opponent: game.opponent }, team)) {
+      continue;
+    }
+    if (fullMetrics) {
+      games.push(game);
+      for (const day of Object.keys(game.cells)) days.add(day);
+      continue;
+    }
+    const cells: GridGame["cells"] = {};
+    for (const [day, cell] of Object.entries(game.cells)) {
+      const next: Partial<Record<GridMetricId, GridPoint>> = {};
+      for (const id of ids) {
+        const point = cell?.[id];
+        if (point) next[id] = point;
+      }
+      if (Object.keys(next).length > 0) {
+        cells[day] = next;
+        days.add(day);
+      }
+    }
+    games.push({ ...game, cells });
+  }
+  return {
+    asof: grid.asof,
+    today: grid.today,
+    metrics: metrics.map((metric) => ({ id: metric.id, label: metric.label, kind: metric.kind })),
+    days: [...days].sort((a, b) => b.localeCompare(a)),
+    games,
+  };
+}
+
 /** Long CSV: one row per game, day, and selected metric that has a value. */
 export function gridToCsv(grid: PriceGrid, options?: { keep?: boolean }): string {
   const header = ["game_date", "opponent", "day", "metric", "per_seat", "keep", "pulled_at", "source", "origin"];
