@@ -9,6 +9,7 @@ import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { gridResponse } from "./grid";
 import { trendsResponse } from "./trends";
+import { salesResponse, syncSalesFromBook } from "./sales";
 import { latestTmReads, tmPortalResponse } from "./tm-portal";
 
 const PRIVATE = {
@@ -39,6 +40,7 @@ export default {
 
     if (url.pathname === "/api/book" && request.method === "GET") {
       // Re-price on every read so keep amounts and days-out match today.
+      ctx.waitUntil(syncSalesFromBook(env).catch((error) => console.error("sales sync", error)));
       const [live, tm] = await Promise.all([loadLiveBook(env), latestTmReads(env)]);
       const priced = priceBook(live, etDateFrom(new Date()));
       const book = { ...priced, games: priced.games.map((g) => ({ ...g, tm_portal: tm[g.date] ?? null })) };
@@ -74,6 +76,10 @@ export default {
       return instantOfferApiResponse(request, env);
     }
 
+    if (url.pathname === "/api/sales" && (request.method === "GET" || request.method === "POST")) {
+      return salesResponse(request, env);
+    }
+
     if (url.pathname === "/api/tm-portal" && (request.method === "GET" || request.method === "POST")) {
       return tmPortalResponse(request, env);
     }
@@ -86,5 +92,6 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil(runIngest(env, "cron"));
+    ctx.waitUntil(syncSalesFromBook(env).catch((error) => console.error("sales sync", error)));
   },
 } satisfies ExportedHandler<Env>;
