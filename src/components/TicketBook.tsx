@@ -147,6 +147,28 @@ function StatusBadge({ status, game }: { status: ListingOverride; game: Game }) 
   );
 }
 
+const TIP = {
+  model: "Model price: our suggested per-seat type-in for Ticketmaster (before the 5% seller fee). Median of comparable 107/108/118/119 rows J–T listings, plus any premium. Display only.",
+  yours: "Your price: the per-seat number you type into Ticketmaster (before the 5% fee). Starts at the model price or your live listing; edit to override. You keep 95% of it per seat.",
+  pair: "Pair total: Your price × 2 seats, before fees. Hover a value for the payout after the 5% fee.",
+  getIn: "Get in price: cheapest single-ticket listing anywhere in the arena (not your section), per seat, from the SeatData pull. Listing price as SeatData reports it (may include buyer fees).",
+  median: "Median price: middle listing price across the whole arena, per seat, from the SeatData pull. Asking prices, not sales (may include buyer fees).",
+};
+
+function pulledAt(game: Game): string {
+  const at = game.comp_checked_at;
+  if (!at) return "pull time unknown";
+  return `pulled ${new Date(at).toLocaleString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })} ET`;
+}
+
+function modelPrice(view: SeatPriceView): number | null {
+  return view.suggestion?.typeIn ?? null;
+}
+
+function pairTotal(view: SeatPriceView): number | null {
+  return view.typeIn != null ? view.typeIn * 2 : null;
+}
+
 function TmBadge({ game }: { game: Game }) {
   const tm = game.tm_portal;
   if (!tm || (tm.suggested == null && tm.listed_price == null)) return null;
@@ -223,12 +245,14 @@ function SortableHead({
   onSort,
   className,
   label,
+  title,
 }: {
   column: SortKey;
   sort: GameSort;
   onSort: (column: SortKey) => void;
   className?: string;
   label?: string;
+  title?: string;
 }) {
   const heading = label ?? SORT_COLUMNS.find((item) => item.key === column)?.label ?? column;
   const active = sort.key === column;
@@ -237,6 +261,7 @@ function SortableHead({
     <TableHead
       aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
       className={className}
+      title={title}
     >
       <button
         type="button"
@@ -273,13 +298,15 @@ function PriceStat({
   label,
   caption,
   value,
+  title,
 }: {
   label: string;
   caption?: string;
   value: number | null;
+  title?: string;
 }) {
   return (
-    <div className="min-w-0 bg-[#faf8f4] px-3.5 py-2.5">
+    <div className="min-w-0 bg-[#faf8f4] px-3.5 py-2.5" title={title}>
       <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
       {caption ? <p className="text-[11px] leading-tight text-muted-foreground">{caption}</p> : null}
       <dd className="mt-0.5 text-sm font-semibold tabular-nums text-foreground/80">{formatMoney(value)}</dd>
@@ -357,18 +384,26 @@ function GameCard({
         <SeatPrice
           opponent={game.opponent}
           view={view}
-          showPair
+          showPair={false}
           onTypeIn={onTypeIn}
           onClear={onClearPrice}
         />
       </div>
 
       <dl className="grid grid-cols-2 gap-px border-t border-line bg-line">
-        <PriceStat label="Cheapest in the arena" caption="Not your seats" value={prices.getIn} />
+        <PriceStat label="Model price" caption="Per seat, before fee" value={view.suggestion?.typeIn ?? null} title={TIP.model} />
         <PriceStat
-          label={prices.centralKind === "mean" ? "Arena average" : "Middle of the arena"}
-          caption="Whole building"
+          label="Pair total"
+          caption={view.pair != null ? `2 seats · you get ${formatMoney(view.pair)}` : "2 seats, before fee"}
+          value={view.typeIn != null ? view.typeIn * 2 : null}
+          title={TIP.pair}
+        />
+        <PriceStat label="Get in price" caption="Per seat, whole arena" value={prices.getIn} title={`${TIP.getIn} ${pulledAt(game)}.`} />
+        <PriceStat
+          label={prices.centralKind === "mean" ? "Average price" : "Median price"}
+          caption="Per seat, whole arena"
           value={prices.central}
+          title={`${TIP.median} ${pulledAt(game)}.`}
         />
       </dl>
 
@@ -785,7 +820,7 @@ export function TicketBook({
           style={{ touchAction: "pan-x pan-y" }}
         >
           <div style={{ zoom: scale }}>
-            <div className="min-w-[1620px]">
+            <div className="min-w-[1760px]">
               <Table className="ticket-table">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -794,21 +829,19 @@ export function TicketBook({
                   <SortableHead column="type" sort={sort} onSort={chooseSort} className="bg-thead" />
                   <SortableHead column="time" sort={sort} onSort={chooseSort} className="bg-thead" />
                   <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="cash" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead
-                    column="get_in"
-                    label="Cheapest in the arena"
-                    sort={sort}
-                    onSort={chooseSort}
-                    className="bg-thead"
-                  />
+                  <TableHead className="bg-thead" title={TIP.model}>
+                    <span className="text-xs font-semibold text-navy">Model price</span>
+                  </TableHead>
+                  <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="bg-thead" title={TIP.yours} />
+                  <SortableHead column="cash" sort={sort} onSort={chooseSort} className="bg-thead" title={TIP.pair} />
+                  <SortableHead column="get_in" sort={sort} onSort={chooseSort} className="bg-thead" title={TIP.getIn} />
                   <SortableHead
                     column="central"
-                    label={centralLabel === "Mean" ? "Arena average" : "Middle of the arena"}
+                    label={centralLabel === "Mean" ? "Average price" : "Median price"}
                     sort={sort}
                     onSort={chooseSort}
                     className="bg-thead"
+                    title={TIP.median}
                   />
                   <SortableHead column="listed" sort={sort} onSort={chooseSort} className="bg-thead" />
                   <SortableHead column="sold" sort={sort} onSort={chooseSort} className="bg-thead" />
@@ -853,7 +886,13 @@ export function TicketBook({
                         onChange={(choice) => setDecision(game.date, choice)}
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell
+                      className="whitespace-nowrap text-sm font-semibold tabular-nums text-navy"
+                      title={`${TIP.model} ${pulledAt(game)}.`}
+                    >
+                      {modelPrice(view) == null ? <span className="font-medium text-muted-foreground">—</span> : `${formatMoney(modelPrice(view))}/seat`}
+                    </TableCell>
+                    <TableCell title={TIP.yours}>
                       <SeatPrice
                         opponent={game.opponent}
                         view={view}
@@ -862,17 +901,20 @@ export function TicketBook({
                         onClear={() => clearPrice(game.date)}
                       />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell
+                      className="whitespace-nowrap"
+                      title={view.pair == null ? TIP.pair : `${formatMoney(pairTotal(view))} for 2 seats before fees. Payout after the 5% fee: ${formatMoney(view.pair)}.`}
+                    >
                       {view.pair == null ? (
                         <span className="text-sm font-medium text-muted-foreground">No price yet</span>
                       ) : (
-                        <span className="text-lg font-bold tabular-nums text-navy">{formatMoney(view.pair)}</span>
+                        <span className="text-lg font-bold tabular-nums text-navy">{formatMoney(pairTotal(view))}</span>
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground" title={`${TIP.getIn} ${pulledAt(game)}.`}>
                       {formatMoney(prices.getIn)}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground" title={`${TIP.median} ${pulledAt(game)}.`}>
                       {formatMoney(prices.central)}
                       {prices.centralKind === "mean" && centralLabel === "Median" ? (
                         <span className="ml-1 text-[11px] font-medium uppercase tracking-wide">

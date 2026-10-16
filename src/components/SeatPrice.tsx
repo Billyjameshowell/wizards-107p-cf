@@ -142,7 +142,7 @@ export function SeatPrice({
   const fields = (
     <div className={cn("grid gap-3", showPair ? "grid-cols-2" : "grid-cols-1 min-[420px]:grid-cols-2")}>
       <DollarField
-        label="You keep"
+        label="You keep / seat"
         hint="per seat"
         aria={`You keep per seat for ${opponent}`}
         textValue={keepToInput(view.keep)}
@@ -157,7 +157,7 @@ export function SeatPrice({
         onClear={onClear}
       />
       <DollarField
-        label="Type in"
+        label="Your price / seat"
         hint="Account Manager"
         aria={`Number to type into Wizards Account Manager for ${opponent}, per seat`}
         textValue={typeToInput(view.typeIn)}
