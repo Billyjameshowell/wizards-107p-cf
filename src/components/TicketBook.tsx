@@ -172,7 +172,7 @@ function pairTotal(view: SeatPriceView): number | null {
 function TmBadge({ game }: { game: Game }) {
   const tm = game.tm_portal;
   if (!tm || (tm.suggested == null && tm.listed_price == null)) return null;
-  const when = new Date(tm.read_at).toLocaleString("en-US", {
+  const when = new Date(tm.suggested_read_at ?? tm.read_at).toLocaleString("en-US", {
     timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit",
   });
   const parts = [

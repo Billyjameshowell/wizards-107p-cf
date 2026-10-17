@@ -43,14 +43,22 @@ export async function latestTmReads(env: Env): Promise<Record<string, TmPortalRe
 async function latestTmReadsFromDb(env: Env): Promise<Record<string, TmPortalRead> | null> {
   try {
     await ensure(env);
-    const rows = await env.DB.prepare(
-      `SELECT t.* FROM tm_portal t JOIN (SELECT game_date, MAX(id) id FROM tm_portal GROUP BY game_date) m ON m.id = t.id`,
-    ).all<TmPortalRead & { game_date: string }>();
+    // Newest row per game, but keep the newest TM suggestion/range/Sell Now even when a later
+    // row only records a listing change. Table is tiny (a few rows per game).
+    const rows = await env.DB.prepare(`SELECT * FROM tm_portal ORDER BY id`).all<TmPortalRead & { game_date: string }>();
     const out: Record<string, TmPortalRead> = {};
     for (const r of rows.results ?? []) {
+      const prev = out[r.game_date];
+      const hasSugg = r.suggested != null;
       out[r.game_date] = {
-        read_at: r.read_at, event_id: r.event_id, suggested: r.suggested, range_low: r.range_low,
-        range_high: r.range_high, sell_now: r.sell_now, listed_price: r.listed_price, status: r.status, note: r.note,
+        read_at: r.read_at, event_id: r.event_id ?? prev?.event_id ?? null,
+        suggested: hasSugg ? r.suggested : (prev?.suggested ?? null),
+        range_low: hasSugg ? r.range_low : (prev?.range_low ?? null),
+        range_high: hasSugg ? r.range_high : (prev?.range_high ?? null),
+        sell_now: hasSugg ? r.sell_now : (prev?.sell_now ?? null),
+        suggested_read_at: hasSugg ? r.read_at : (prev?.suggested_read_at ?? null),
+        listed_price: r.listed_price ?? (r.status === "not listed" ? null : prev?.listed_price ?? null),
+        status: r.status, note: r.note,
       };
     }
     return out;

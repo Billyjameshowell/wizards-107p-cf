@@ -66,6 +66,8 @@ export type TmPortalRead = {
   range_low: number | null;
   range_high: number | null;
   sell_now: number | null;
+  /** When the suggestion above was read (may be older than read_at). */
+  suggested_read_at?: string | null;
   listed_price: number | null;
   status: string | null;
   note: string | null;
