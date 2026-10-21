@@ -142,7 +142,7 @@
     }
 }
 
-/* Separate borders so sticky header and date cells stay put while scrolling. */
+/* Trends table: separate borders so the sticky header and first column stay put while scrolling. */
 .ticket-table {
   border-collapse: separate;
   border-spacing: 0;
@@ -173,18 +173,6 @@
 
 .ticket-table tbody td {
   border-bottom: 1px solid color-mix(in srgb, var(--color-line) 80%, white);
-}
-
-.ticket-table tbody tr[data-tone="sit"] td:first-child {
-  background-color: var(--color-sit);
-}
-
-.ticket-table tbody tr[data-tone="sell"] td:first-child {
-  background-color: var(--color-sell);
-}
-
-.ticket-table tbody tr[data-tone="tbd"] td:first-child {
-  background-color: var(--color-tbd);
 }
 
 .trends-table tbody td:first-child {

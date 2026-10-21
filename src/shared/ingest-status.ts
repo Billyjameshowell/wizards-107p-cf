@@ -1,4 +1,5 @@
 import { etStampToIso } from "./archive";
+import { ageLabel } from "./freshness";
 
 /** A pull older than this is called out on the admin status page. */
 export const STALE_PULL_MS = 3 * 24 * 60 * 60 * 1000;
@@ -65,8 +66,7 @@ export function ingestStatusWarnings(input: IngestStatusInput): string[] {
   }
   const ageMs = input.now.getTime() - lastMs;
   if (ageMs > STALE_PULL_MS) {
-    const days = Math.floor(ageMs / 86_400_000);
-    warnings.push(`Last successful pull was ${days} days ago.`);
+    warnings.push(`Last successful pull was ${ageLabel(ageMs / 3_600_000)}.`);
   }
   return warnings;
 }

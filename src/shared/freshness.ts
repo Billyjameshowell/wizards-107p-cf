@@ -1,4 +1,4 @@
-/** How fresh a data source is, for the small "updated 3h ago" badges. */
+/** How fresh a data source is, plus the shared "3h ago" / "11 days ago" label. */
 export type FreshTone = "fresh" | "aging" | "stale";
 
 export const FRESH_HOURS = 24;
@@ -14,28 +14,38 @@ function parse(value: string | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/**
+ * The one relative-time label for the whole site: minutes under an hour,
+ * hours up to 72h, whole days after that ("4m ago", "35h ago", "11 days ago").
+ */
 export function ageLabel(hours: number): string {
-  if (hours < 1) return "just now";
-  if (hours < 24) return `${Math.floor(hours)}h ago`;
+  const minutes = Math.floor(hours * 60);
+  if (minutes < 1) return "just now";
+  if (hours < 1) return `${minutes}m ago`;
+  if (hours < AGING_HOURS) return `${Math.floor(hours)}h ago`;
   const days = Math.floor(hours / 24);
-  return days === 1 ? "1 day ago" : `${days} days ago`;
+  return `${days} days ago`;
+}
+
+/** Hours since a timestamp (ISO or YYYY-MM-DD), or null when missing or unreadable. */
+export function hoursSince(at: string | null | undefined, now: Date = new Date()): number | null {
+  const ms = parse(at);
+  return ms == null ? null : Math.max(0, (now.getTime() - ms) / 3_600_000);
 }
 
 /** Green under 24h, amber 24–72h, red when older or never. */
 export function freshness(at: string | null | undefined, now: Date = new Date()): Freshness {
-  const ms = parse(at);
-  if (ms == null) return { tone: "stale", label: "never", hours: null };
-  const hours = Math.max(0, (now.getTime() - ms) / 3_600_000);
+  const hours = hoursSince(at, now);
+  if (hours == null) return { tone: "stale", label: "never", hours: null };
   const tone: FreshTone = hours < FRESH_HOURS ? "fresh" : hours < AGING_HOURS ? "aging" : "stale";
   return { tone, label: ageLabel(hours), hours };
 }
 
-/** "checked 5h ago" / "checked just now" / "never checked", same tones as freshness(). */
+/** "checked 5h ago" / "checked 11 days ago" / "never checked", same tones as freshness(). */
 export function checkedAgo(at: string | null | undefined, now: Date = new Date()): Freshness {
   const base = freshness(at, now);
   if (base.hours == null) return { tone: "stale", label: "never checked", hours: null };
-  if (base.hours < 1) return { ...base, label: "checked just now" };
-  return { ...base, label: `checked ${Math.floor(base.hours)}h ago` };
+  return { ...base, label: `checked ${base.label}` };
 }
 
 /** Red-badge rule: never checked, or 72h and older. */
