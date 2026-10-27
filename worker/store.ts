@@ -165,19 +165,21 @@ export async function recordPriceHistory(
       ),
     );
   }
-  const size = 40;
+  // One round trip: a day's pull is at most ~50 rows plus the trim.
+  const size = 100;
   for (let i = 0; i < statements.length; i += size) {
     await env.DB.batch(statements.slice(i, i + size));
   }
 }
 
-export async function readCompHistory(env: Env): Promise<Map<string, CompObservation[]>> {
+/** Comp history for games on or after `fromGameDate` (only upcoming games are re-blended). */
+export async function readCompHistory(env: Env, fromGameDate: string): Promise<Map<string, CompObservation[]>> {
   await ensurePriceHistory(env);
   const result = await env.DB.prepare(
     `SELECT game_date, source, et_date, pulled_at, median, comp_count, excluded_dump
      FROM price_history
-     WHERE source = 'seatdata'`,
-  ).all<{
+     WHERE source = 'seatdata' AND game_date >= ?`,
+  ).bind(fromGameDate).all<{
     game_date: string;
     source: string;
     et_date: string;

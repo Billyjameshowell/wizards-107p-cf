@@ -86,7 +86,7 @@ npm run deploy
 
 7. Open the `*.workers.dev` URL. The book UI loads from `/api/book`. The first request also backfills the price archive (legacy rows, any existing `price_history` rows, and zone comps still sitting on the book). That backfill does not call SeatData or Apify.
 
-Cron is `0 12 * * *` UTC (~8am America/New_York). After deploy, Cloudflare runs `scheduled()` on that schedule. HTTP `/api/cron` is the same job and **requires** `Authorization: Bearer <CRON_SECRET>`.
+The daily job is four cron steps, one per invocation so each stays inside the Workers CPU and per-invocation limits (`worker/schedule.ts`): `0 12 * * *` ingest (comps pull, archive, price history, book), `10 12` refit (model fit, suggested asks, likely sales), `20 12` grid, `30 12` trends, all UTC (~8am America/New_York). The cron's minute picks the step. HTTP `/api/cron?step=ingest|refit|grid|trends` runs one step (default ingest) and **requires** `Authorization: Bearer <CRON_SECRET>`.
 
 ## Secrets and flags
 
@@ -172,6 +172,6 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 No new SQL migration. `price_pulls.cost_usd` already exists; the next charged listings pull writes 0.04 into it. Older rows stay as they are. Spend JSON in D1/KV gains `usdToday`; a saved spend row without that field counts as $0 for the current ET day.
 
-Production ingest is on and dry run is off in `wrangler.jsonc`. Do not raise the SeatData ceilings past 50 pulls or $2. Cron stays `0 12 * * *`. Do not rotate secrets for this change.
+Production ingest is on and dry run is off in `wrangler.jsonc`. Do not raise the SeatData ceilings past 50 pulls or $2. Crons stay the four 12:xx UTC steps. Do not rotate secrets for this change.
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).

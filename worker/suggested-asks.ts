@@ -1,15 +1,11 @@
-import type { LoggedInstantOffer } from "../src/shared/instant-offer";
 import {
   planRecomputedAsks,
   planSnapshotAsks,
   type SuggestedAskDraft,
 } from "../src/shared/grid";
 import { etYmd } from "../src/shared/pricing";
-import type { TrendListing, TrendPull, TrendsGameSeed } from "../src/shared/trends";
 import { ensureArchive } from "./archive-store";
-import { loadInstantOffers } from "./instant-offers";
-import { loadLiveBook } from "./store";
-import { loadTrendListings, loadTrendPulls, toSeed } from "./trends";
+import { D1_PAGE, loadMarketInputs, type MarketInputs } from "./trends";
 
 const FLAG = "suggested_backfill_v1";
 const INSERT = `INSERT INTO suggested_asks (
@@ -17,12 +13,6 @@ const INSERT = `INSERT INTO suggested_asks (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(external_id) DO NOTHING`;
 
-export type SuggestionInputs = {
-  games: TrendsGameSeed[];
-  pulls: TrendPull[];
-  listings: TrendListing[];
-  instantOffers: LoggedInstantOffer[];
-};
 
 async function ensureStore(env: Env): Promise<void> {
   await env.DB.prepare(
@@ -51,21 +41,6 @@ async function markBackfill(env: Env, now: Date): Promise<void> {
     .run();
 }
 
-export async function loadSuggestionInputs(env: Env): Promise<SuggestionInputs> {
-  await ensureArchive(env);
-  const book = await loadLiveBook(env);
-  const [pulls, listings, instantOffers] = await Promise.all([
-    loadTrendPulls(env),
-    loadTrendListings(env),
-    loadInstantOffers(env),
-  ]);
-  return {
-    games: book.games.map(toSeed),
-    pulls,
-    listings,
-    instantOffers,
-  };
-}
 
 async function insertSuggested(env: Env, rows: readonly SuggestedAskDraft[]): Promise<void> {
   const size = 30;
@@ -102,59 +77,40 @@ async function hasTodaySnapshot(env: Env, today: string): Promise<boolean> {
  * Backfill past days once, then save today's model ask.
  * Inserts use ON CONFLICT DO NOTHING, so a saved ask is never replaced.
  * Cron only (`fillToday` from the morning refit). A page request must not call this.
- * After the write, the precomputed grid in KV is refreshed.
+ * The grid and trends caches are rebuilt by their own cron steps afterwards (schedule.ts).
  */
 export async function persistSuggestedAsks(
   env: Env,
   now = new Date(),
-  options?: { fillToday?: boolean; inputs?: SuggestionInputs },
+  options?: { fillToday?: boolean; inputs?: MarketInputs },
 ): Promise<void> {
-  try {
-    await ensureArchive(env);
-    const today = etYmd(now);
-    const recordedAt = now.toISOString();
-    const inputs = options?.inputs ?? (await loadSuggestionInputs(env));
-    if (!(await backfillDone(env))) {
-      const recomputed = planRecomputedAsks({
-        asOf: today,
-        today,
-        recordedAt,
-        games: inputs.games,
-        pulls: inputs.pulls,
-        listings: inputs.listings,
-        instantOffers: inputs.instantOffers,
-      });
-      await insertSuggested(env, recomputed);
-      await markBackfill(env, now);
-    }
-    if (!options?.fillToday && (await hasTodaySnapshot(env, today))) return;
-    const snapshot = planSnapshotAsks({
+  await ensureArchive(env);
+  const today = etYmd(now);
+  const recordedAt = now.toISOString();
+  const inputs = options?.inputs ?? (await loadMarketInputs(env));
+  if (!(await backfillDone(env))) {
+    const recomputed = planRecomputedAsks({
       asOf: today,
+      today,
       recordedAt,
       games: inputs.games,
       pulls: inputs.pulls,
       listings: inputs.listings,
       instantOffers: inputs.instantOffers,
     });
-    await insertSuggested(env, snapshot);
-  } finally {
-    await refreshGridCache(env, now);
+    await insertSuggested(env, recomputed);
+    await markBackfill(env, now);
   }
-}
-
-async function refreshGridCache(env: Env, now: Date): Promise<void> {
-  try {
-    const { refreshPriceGrid } = await import("./grid");
-    await refreshPriceGrid(env, now);
-  } catch (error) {
-    console.error("price grid", error);
-  }
-  try {
-    const { refreshTrends } = await import("./trends");
-    await refreshTrends(env, now);
-  } catch (error) {
-    console.error("trends cache", error);
-  }
+  if (!options?.fillToday && (await hasTodaySnapshot(env, today))) return;
+  const snapshot = planSnapshotAsks({
+    asOf: today,
+    recordedAt,
+    games: inputs.games,
+    pulls: inputs.pulls,
+    listings: inputs.listings,
+    instantOffers: inputs.instantOffers,
+  });
+  await insertSuggested(env, snapshot);
 }
 
 /** `ready` skips CREATE TABLE. The cron calls this after ensureArchive. */
@@ -168,9 +124,9 @@ export async function loadSuggestedAsks(env: Env, options?: { ready?: boolean })
        FROM suggested_asks
        WHERE id > ?
        ORDER BY id
-       LIMIT 400`,
+       LIMIT ?`,
     )
-      .bind(after)
+      .bind(after, D1_PAGE)
       .all<{
         id: number;
         external_id: string;
@@ -200,7 +156,7 @@ export async function loadSuggestedAsks(env: Env, options?: { ready?: boolean })
         method: row.method,
       });
     }
-    if (batch.length < 400) break;
+    if (batch.length < D1_PAGE) break;
   }
   return rows;
 }

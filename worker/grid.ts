@@ -11,10 +11,9 @@ import { etYmd } from "../src/shared/pricing";
 import type { TrendListing } from "../src/shared/trends";
 import { loadLiveBook } from "./store";
 import { loadSuggestedAsks } from "./suggested-asks";
-import { toSeed } from "./trends";
+import { D1_PAGE, toSeed } from "./trends";
 
 const HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
-const PAGE = 400;
 const ARCHIVE_CAP = 30;
 
 /** KV copy of the full grid. Requests read this and never rebuild it. */
@@ -79,7 +78,7 @@ async function loadGridPulls(env: Env): Promise<GridPull[]> {
   const pulls: GridPull[] = [];
   let after = 0;
   for (;;) {
-    const page = await env.DB.prepare(GRID_PULL_SQL).bind(after, PAGE).all<PullSql>();
+    const page = await env.DB.prepare(GRID_PULL_SQL).bind(after, D1_PAGE).all<PullSql>();
     const rows = page.results ?? [];
     for (const row of rows) {
       pulls.push({
@@ -101,7 +100,7 @@ async function loadGridPulls(env: Env): Promise<GridPull[]> {
       });
       after = row.id;
     }
-    if (rows.length < PAGE) break;
+    if (rows.length < D1_PAGE) break;
   }
   return pulls;
 }
@@ -111,7 +110,7 @@ async function loadGridListings(env: Env): Promise<TrendListing[]> {
   let after = 0;
   for (;;) {
     const page = await env.DB.prepare(GRID_LISTING_SQL)
-      .bind(after, PAGE)
+      .bind(after, D1_PAGE)
       .all<{
         id: number;
         pull_id: number;
@@ -133,7 +132,7 @@ async function loadGridListings(env: Env): Promise<TrendListing[]> {
       });
       after = row.id;
     }
-    if (rows.length < PAGE) break;
+    if (rows.length < D1_PAGE) break;
   }
   return listings;
 }

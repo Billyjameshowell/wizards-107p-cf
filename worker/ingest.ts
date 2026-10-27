@@ -12,7 +12,6 @@ import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
 import { archiveObserved, ensureArchiveBackfill, rowsForAdapter } from "./archive-store";
 import { insertProbableSales } from "./likely-sales";
-import { refitPriceModel } from "./model-fit";
 import {
   loadLiveBook,
   readCompHistory,
@@ -203,22 +202,11 @@ async function saveArchive(
   }
 }
 
+/** The ingest step: comps pull, raw archive, price history and book. The refit is its own step (schedule.ts). */
 export async function runIngest(
   env: Env,
   trigger: IngestTrigger,
   now = new Date(),
-): Promise<IngestSummary> {
-  try {
-    return await runIngestOnce(env, trigger, now);
-  } finally {
-    await refitPriceModel(env, trigger, now);
-  }
-}
-
-async function runIngestOnce(
-  env: Env,
-  trigger: IngestTrigger,
-  now: Date,
 ): Promise<IngestSummary> {
   try {
     await ensureArchiveBackfill(env);
@@ -344,7 +332,7 @@ async function runIngestOnce(
       console.error("price history write", error);
     }
     try {
-      history = await readCompHistory(env);
+      history = await readCompHistory(env, etDate);
     } catch (error) {
       console.error("price history read", error);
     }

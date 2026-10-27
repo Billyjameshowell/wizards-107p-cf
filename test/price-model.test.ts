@@ -502,10 +502,10 @@ describe("gates, early blend, and the list suggestion", () => {
   });
 
   it("refits from the cron path and only inserts fit rows", () => {
-    const ingest = readFileSync(new URL("../worker/ingest.ts", import.meta.url), "utf8");
+    const schedule = readFileSync(new URL("../worker/schedule.ts", import.meta.url), "utf8");
     const store = readFileSync(new URL("../worker/model-fit.ts", import.meta.url), "utf8");
     const migration = readFileSync(new URL("../migrations/0004_price_model.sql", import.meta.url), "utf8");
-    expect(ingest).toContain("refitPriceModel");
+    expect(schedule).toContain("refitPriceModel");
     expect(store).toContain("INSERT INTO price_model_fits");
     expect(store).not.toMatch(/UPDATE price_model_fits|DELETE FROM price_model_fits/i);
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS price_model_fits");

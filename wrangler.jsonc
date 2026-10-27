@@ -2,7 +2,7 @@
  * Official C3 React + Vite + Workers config, plus D1/KV, cron, and production vars.
  * `wrangler deploy` replaces dashboard vars with this file. Leave INGEST_ENABLED
  * true and DRY_RUN false here. SeatData ceilings are 50 pulls and $2/ET-day
- * ($0.04 × 50). Do not raise them. Cron and secrets are unchanged.
+ * ($0.04 × 50). Do not raise them. Secrets are unchanged; the cron is four steps.
  * https://developers.cloudflare.com/workers/framework-guides/web-apps/react/
  */
 {
@@ -19,7 +19,8 @@
 	},
 	"upload_source_maps": true,
 	"triggers": {
-		"crons": ["0 12 * * *"]
+		// One step per invocation (worker/schedule.ts): ingest, refit, grid, trends.
+		"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *"]
 	},
 	"vars": {
 		"INGEST_ENABLED": "true",
