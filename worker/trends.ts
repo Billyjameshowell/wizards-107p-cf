@@ -1,4 +1,5 @@
 import type { Game } from "../src/shared/book";
+import type { LoggedInstantOffer } from "../src/shared/instant-offer";
 import { SEASON_CUSHION_DEFAULT } from "../src/shared/price-model";
 import { compMedianOf, demandOf, etYmd } from "../src/shared/pricing";
 import {
@@ -12,7 +13,12 @@ import { loadInstantOffers } from "./instant-offers";
 import { loadCertainSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
 
-const PAGE = 400;
+/**
+ * Rows per D1 read. Each page is one call against the per-invocation limit on calls to
+ * Cloudflare services; at 400 a full listings read (~74k rows) took ~185 calls, and the
+ * old one-shot cron made five of them. Rows are small, so 5,000 is a few hundred KB.
+ */
+export const D1_PAGE = 5000;
 
 type PullSql = {
   id: number;
@@ -51,21 +57,22 @@ function parsePayload(value: string | null, source: string): unknown {
 
 export async function loadTrendPulls(env: Env): Promise<TrendPull[]> {
   const pulls: TrendPull[] = [];
-  let offset = 0;
+  let after = 0;
   for (;;) {
     const page = await env.DB.prepare(
       `SELECT id, pulled_at, et_date, source, game_date, opponent, median, get_in, live_ask,
               comp_count, listing_count, legacy_label,
               CASE WHEN source = 'legacy-box' THEN payload_json ELSE NULL END AS payload_json
        FROM price_pulls
-       WHERE game_date IS NOT NULL
+       WHERE game_date IS NOT NULL AND id > ?
        ORDER BY id
-       LIMIT ? OFFSET ?`,
+       LIMIT ?`,
     )
-      .bind(PAGE, offset)
+      .bind(after, D1_PAGE)
       .all<PullSql>();
     const rows = page.results ?? [];
     for (const row of rows) {
+      after = row.id;
       pulls.push({
         id: row.id,
         pulledAt: row.pulled_at,
@@ -82,8 +89,7 @@ export async function loadTrendPulls(env: Env): Promise<TrendPull[]> {
         payload: parsePayload(row.payload_json, row.source),
       });
     }
-    if (rows.length < PAGE) break;
-    offset += rows.length;
+    if (rows.length < D1_PAGE) break;
   }
   return pulls;
 }
@@ -91,7 +97,7 @@ export async function loadTrendPulls(env: Env): Promise<TrendPull[]> {
 export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
   const listings: TrendListing[] = [];
   // Keyset paging (id > last). OFFSET paging re-read every skipped row and made each
-  // trends rebuild read O(n^2 / PAGE) rows, the main D1 free-tier drain.
+  // trends rebuild read O(n^2 / page size) rows, the main D1 free-tier drain.
   let after = 0;
   for (;;) {
     const page = await env.DB.prepare(
@@ -101,7 +107,7 @@ export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
        ORDER BY id
        LIMIT ?`,
     )
-      .bind(after, PAGE)
+      .bind(after, D1_PAGE)
       .all<ListingSql>();
     const rows = page.results ?? [];
     for (const row of rows) {
@@ -115,7 +121,7 @@ export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
         active: row.active,
       });
     }
-    if (rows.length < PAGE) break;
+    if (rows.length < D1_PAGE) break;
   }
   return listings;
 }
@@ -135,6 +141,24 @@ export function toSeed(game: Game): TrendsGameSeed {
     listedAsk: game.listed_ask,
     soldKeepTotal: game.sold_keep_total ?? null,
   };
+}
+
+/** Everything the model reads: one load per cron step, shared by the fit, the snapshot and likely sales. */
+export type MarketInputs = {
+  games: TrendsGameSeed[];
+  pulls: TrendPull[];
+  listings: TrendListing[];
+  instantOffers: LoggedInstantOffer[];
+};
+
+export async function loadMarketInputs(env: Env): Promise<MarketInputs> {
+  const book = await loadLiveBook(env);
+  const [pulls, listings, instantOffers] = await Promise.all([
+    loadTrendPulls(env),
+    loadTrendListings(env),
+    loadInstantOffers(env),
+  ]);
+  return { games: book.games.map(toSeed), pulls, listings, instantOffers };
 }
 
 function cushionOf(env: Env): number {

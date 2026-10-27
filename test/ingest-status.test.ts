@@ -139,7 +139,7 @@ describe("production wrangler vars", () => {
     expect(config).toContain('"SEATDATA_BASE_URL": "https://seatdata.io"');
     expect(config).not.toContain("api.seatdata.io");
     expect(config).toContain('"bucket_name": "wizards-107p-archive"');
-    expect(config).toContain('"crons": ["0 12 * * *"]');
+    expect(config).toContain('"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *"]');
   });
 });
 

@@ -563,6 +563,8 @@ describe("GET /api/grid", () => {
     expect(again.ask).toBe(saved.ask);
     expect((db.prepare(`SELECT COUNT(*) AS n FROM suggested_asks WHERE external_id = ?`).get(saved.external_id) as { n: number }).n).toBe(1);
 
+    // The grid is its own cron step after the refit.
+    await refreshPriceGrid(env, now);
     const response = await gridResponse(env, new Request("https://book.example/api/grid?metrics=suggested&team=bucks"));
     const body = (await response.json()) as PriceGrid;
     expect(body.games.find((game) => game.date === "2026-10-21")?.cells["2026-10-15"]?.suggested).toMatchObject({
@@ -572,13 +574,13 @@ describe("GET /api/grid", () => {
 
     const asks = readFileSync(new URL("../worker/suggested-asks.ts", import.meta.url), "utf8");
     const fit = readFileSync(new URL("../worker/model-fit.ts", import.meta.url), "utf8");
-    const ingest = readFileSync(new URL("../worker/ingest.ts", import.meta.url), "utf8");
+    const schedule = readFileSync(new URL("../worker/schedule.ts", import.meta.url), "utf8");
     const index = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
     const grid = readFileSync(new URL("../worker/grid.ts", import.meta.url), "utf8");
-    expect(index).toContain("runIngest");
-    expect(ingest).toContain("refitPriceModel");
+    expect(index).toContain("runStep");
+    for (const step of ["runIngest", "refitPriceModel", "refreshPriceGrid", "refreshTrends"]) expect(schedule).toContain(step);
     expect(fit).toContain("persistSuggestedAsks");
-    expect(asks).toContain("refreshPriceGrid");
+    expect(asks).not.toContain("refreshPriceGrid");
     expect(functionBody(grid, "gridResponse")).not.toContain("persistSuggestedAsks");
     expect(functionBody(grid, "gridResponse")).not.toContain("ensureArchiveBackfill");
     expect(functionBody(grid, "gridResponse")).not.toContain("env.DB");

@@ -19,7 +19,7 @@ The site **does not list tickets**. It tracks status. Nothing is posted to Ticke
 - React + Vite + TypeScript.
 - shadcn/ui (`npx shadcn@latest init -d --base radix`) with table, card, and button.
 - Durable store: D1 (`store` table) is source of truth; KV (`BOOK`) caches the same JSON for live reads.
-- Cron Trigger `0 12 * * *` UTC (~8am America/New_York).
+- Cron Triggers `0,10,20,30 12 * * *` UTC (~8am America/New_York): ingest, refit, grid, trends, one step each.
 - Secrets via `wrangler secret put` (never committed).
 
 ## Data pipes

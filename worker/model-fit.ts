@@ -14,41 +14,38 @@ import {
 } from "../src/shared/price-model";
 import { proxySales } from "../src/shared/trends";
 import { ensureArchive } from "./archive-store";
-import { loadInstantOffers } from "./instant-offers";
 import { insertProbableSales } from "./likely-sales";
-import { loadLiveBook } from "./store";
 import { persistSuggestedAsks } from "./suggested-asks";
-import { loadTrendListings, loadTrendPulls, toSeed } from "./trends";
+import { loadMarketInputs, type MarketInputs } from "./trends";
 
 const INSERT_FIT = `INSERT INTO price_model_fits (
   fitted_at, et_date, version, trigger_name, row_count, game_count, observed_games,
   early, blend, sigma_resid, sigma_game, holdout_median_ape, params_json
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
+/** The refit step: model fit, today's suggested-ask snapshot, likely sales. Reads the archive once. */
 export async function refitPriceModel(env: Env, trigger: string, now = new Date()): Promise<void> {
+  await ensureArchive(env);
+  const inputs = await loadMarketInputs(env);
   try {
-    await insertModelFit(env, trigger, now);
+    await insertModelFit(env, fitFromInputs(inputs, trigger, now));
   } catch (error) {
     console.error("price model fit", error);
   }
   try {
-    // Writes today's snapshot (and the one-time backfill) and refreshes the KV grid.
-    await persistSuggestedAsks(env, now, { fillToday: true });
+    // Today's snapshot (and the one-time backfill). The grid step rebuilds the grid from it.
+    await persistSuggestedAsks(env, now, { fillToday: true, inputs });
   } catch (error) {
     console.error("suggested asks", error);
   }
   try {
-    await ensureArchive(env);
-    const [pulls, listings] = await Promise.all([loadTrendPulls(env), loadTrendListings(env)]);
-    await insertProbableSales(env, proxySales(pulls, listings), now);
+    await insertProbableSales(env, proxySales(inputs.pulls, inputs.listings), now);
   } catch (error) {
     console.error("likely sales", error);
   }
 }
 
-async function insertModelFit(env: Env, trigger: string, now: Date): Promise<void> {
-  const saved = await prepareModelFit(env, trigger, now);
-  if (!saved) return;
+async function insertModelFit(env: Env, saved: StoredModelFit): Promise<void> {
   await env.DB.prepare(INSERT_FIT)
     .bind(
       saved.fittedAt,
@@ -68,21 +65,15 @@ async function insertModelFit(env: Env, trigger: string, now: Date): Promise<voi
     .run();
 }
 
-export async function prepareModelFit(env: Env, trigger: string, now = new Date()): Promise<StoredModelFit | null> {
+export async function prepareModelFit(env: Env, trigger: string, now = new Date()): Promise<StoredModelFit> {
   await ensureArchive(env);
-  const today = etYmd(now);
-  const book = await loadLiveBook(env);
-  const [pulls, listings, instantOffers] = await Promise.all([
-    loadTrendPulls(env),
-    loadTrendListings(env),
-    loadInstantOffers(env),
-  ]);
+  return fitFromInputs(await loadMarketInputs(env), trigger, now);
+}
+
+function fitFromInputs(inputs: MarketInputs, trigger: string, now: Date): StoredModelFit {
   return fitFromArchive({
-    today,
-    games: book.games.map(toSeed),
-    pulls,
-    listings,
-    instantOffers,
+    today: etYmd(now),
+    ...inputs,
     fittedAt: now.toISOString(),
     etDate: etDateFrom(now),
     trigger,

@@ -2,13 +2,13 @@ import { priceBook } from "../src/shared/book-pricing";
 import { authorizeBearer, etDateFrom } from "../src/shared/guardrails";
 import { adminStatusResponse } from "./admin-status";
 import { exportArchive } from "./export";
-import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
 import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { gridResponse } from "./grid";
 import { trendsResponse } from "./trends";
-import { salesResponse, syncSalesFromBook } from "./sales";
+import { salesResponse } from "./sales";
+import { isStep, runStep, stepForCron } from "./schedule";
 import { latestTmReads, tmPortalResponse } from "./tm-portal";
 
 const PRIVATE = {
@@ -18,7 +18,7 @@ const PRIVATE = {
 
 export default {
   async fetch(request, env, _ctx) {
-    // Archive backfill runs from the daily cron (runIngest), not on every request: saves D1 reads.
+    // Archive backfill runs from the daily ingest step, not on every request: saves D1 reads.
     const url = new URL(request.url);
 
     if (url.pathname === "/admin") {
@@ -63,7 +63,10 @@ export default {
       if (!authorizeBearer(request.headers.get("Authorization"), env.CRON_SECRET)) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      return Response.json(await runIngest(env, "http"));
+      // One step per request (default ingest), the same split the cron uses.
+      const step = url.searchParams.get("step") ?? "ingest";
+      if (!isStep(step)) return Response.json({ error: "step must be ingest, refit, grid or trends" }, { status: 400 });
+      return Response.json((await runStep(step, env, "http")) ?? { ok: true });
     }
 
     if (url.pathname === "/api/instant-offers" && (request.method === "GET" || request.method === "POST")) {
@@ -84,8 +87,12 @@ export default {
 
     return new Response(null, { status: 404 });
   },
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(runIngest(env, "cron"));
-    ctx.waitUntil(syncSalesFromBook(env).catch((error) => console.error("sales sync", error)));
+  async scheduled(controller, env, ctx) {
+    const step = stepForCron(controller.cron);
+    if (!step) {
+      console.error("no step for cron", controller.cron);
+      return;
+    }
+    ctx.waitUntil(runStep(step, env, "cron", new Date(controller.scheduledTime)));
   },
 } satisfies ExportedHandler<Env>;
