@@ -655,7 +655,7 @@ export function TicketBook({
             {summary.sellCash > 0 ? (
               <span className="text-muted-foreground">
                 {" "}
-                · about {formatMoney(summary.sellCash)} with the Sell games at these prices ·{" "}
+                · about {formatMoney(summary.sellCash)} if every Sell game sells at these prices ·{" "}
                 {formatShortfall(summary.vsSeason, book.season_cost)}
               </span>
             ) : null}
