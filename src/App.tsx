@@ -4,18 +4,30 @@ import { GridPage } from "./components/GridPage.tsx";
 import { TicketBook } from "./components/TicketBook.tsx";
 import { TrendsPage } from "./components/TrendsPage.tsx";
 
-function pageKind(): "grid" | "trends" | "book" {
+function pageKind(): "grid" | "trends" | "book" | "missing" {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/grid" || path.startsWith("/grid/")) return "grid";
   if (path === "/trends" || path.startsWith("/trends/")) return "trends";
-  return "book";
+  return path === "/" ? "book" : "missing";
 }
 
 export default function App() {
   const kind = pageKind();
   if (kind === "grid") return <GridPage />;
   if (kind === "trends") return <TrendsPage />;
+  if (kind === "missing") return <NotFound />;
   return <BookApp />;
+}
+
+function NotFound() {
+  return (
+    <div className="mx-auto max-w-xl px-4 py-16 text-center">
+      <h1 className="font-heading text-2xl text-navy">This page isn't part of Wizards 107P</h1>
+      <a href="/" className="mt-4 inline-flex min-h-11 items-center font-semibold text-navy underline">
+        Go to the book
+      </a>
+    </div>
+  );
 }
 
 function BookApp() {
