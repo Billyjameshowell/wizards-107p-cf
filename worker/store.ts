@@ -100,6 +100,7 @@ export async function writeSpend(env: Env, spend: SpendState): Promise<void> {
   await writeStore(env, SPEND_KEY, JSON.stringify(spend));
 }
 
+// price_history's schema lives in migrations (0002, rebuilt by 0010); nothing creates it at runtime.
 export type PriceHistoryWrite = {
   gameDate: string;
   source: "seatdata" | "apify";
@@ -112,29 +113,11 @@ export type PriceHistoryWrite = {
   excludedDump: boolean;
 };
 
-const PRICE_HISTORY_SQL = `CREATE TABLE IF NOT EXISTS price_history (
-  game_date TEXT NOT NULL,
-  source TEXT NOT NULL,
-  et_date TEXT NOT NULL,
-  pulled_at TEXT NOT NULL,
-  median REAL,
-  get_in REAL,
-  listing_count INTEGER,
-  comp_count INTEGER,
-  excluded_dump INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (game_date, source, et_date)
-)`;
-
-async function ensurePriceHistory(env: Env): Promise<void> {
-  await env.DB.exec(PRICE_HISTORY_SQL);
-}
-
 export async function recordPriceHistory(
   env: Env,
   rows: PriceHistoryWrite[],
   now: Date,
 ): Promise<void> {
-  await ensurePriceHistory(env);
   const cutoff = etDateFrom(new Date(now.getTime() - HISTORY_KEEP_DAYS * 86_400_000));
   const statements: D1PreparedStatement[] = [
     env.DB.prepare("DELETE FROM price_history WHERE et_date < ?").bind(cutoff),
@@ -174,7 +157,6 @@ export async function recordPriceHistory(
 
 /** Comp history for games on or after `fromGameDate` (only upcoming games are re-blended). */
 export async function readCompHistory(env: Env, fromGameDate: string): Promise<Map<string, CompObservation[]>> {
-  await ensurePriceHistory(env);
   const result = await env.DB.prepare(
     `SELECT game_date, source, et_date, pulled_at, median, comp_count, excluded_dump
      FROM price_history
