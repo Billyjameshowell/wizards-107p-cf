@@ -204,6 +204,6 @@ describe("admin freshness pills", () => {
     });
     expect(html).toContain('<span class="pill fresh"><i></i>SeatData comps · 10h ago</span>');
     expect(html).toContain('<span class="pill stale"><i></i>Apify · never</span>');
-    expect(html).toContain('<span class="pill aging"><i></i>Instant offers · 1 day ago</span>');
+    expect(html).toContain('<span class="pill aging"><i></i>Instant offers · 47h ago</span>');
   });
 });

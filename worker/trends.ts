@@ -90,19 +90,22 @@ export async function loadTrendPulls(env: Env): Promise<TrendPull[]> {
 
 export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
   const listings: TrendListing[] = [];
-  let offset = 0;
+  // Keyset paging (id > last). OFFSET paging re-read every skipped row and made each
+  // trends rebuild read O(n^2 / PAGE) rows, the main D1 free-tier drain.
+  let after = 0;
   for (;;) {
     const page = await env.DB.prepare(
       `SELECT id, pull_id, section, row, quantity, price, active
        FROM price_listings
-       WHERE price > 0
+       WHERE price > 0 AND id > ?
        ORDER BY id
-       LIMIT ? OFFSET ?`,
+       LIMIT ?`,
     )
-      .bind(PAGE, offset)
+      .bind(after, PAGE)
       .all<ListingSql>();
     const rows = page.results ?? [];
     for (const row of rows) {
+      after = row.id;
       listings.push({
         pullId: row.pull_id,
         section: row.section,
@@ -113,7 +116,6 @@ export async function loadTrendListings(env: Env): Promise<TrendListing[]> {
       });
     }
     if (rows.length < PAGE) break;
-    offset += rows.length;
   }
   return listings;
 }
@@ -143,32 +145,53 @@ function cushionOf(env: Env): number {
   return parsed;
 }
 
+export const TRENDS_CACHE_KEY = "trends:v1";
+
+async function buildTrends(env: Env, now: Date) {
+  await ensureArchiveBackfill(env);
+  const book = await loadLiveBook(env);
+  const [pulls, listings, certainSales, instantOffers] = await Promise.all([
+    loadTrendPulls(env),
+    loadTrendListings(env),
+    loadCertainSales(env),
+    loadInstantOffers(env),
+  ]);
+  return buildTrendsReport({
+    today: etYmd(now),
+    section: book.section,
+    row: book.row,
+    seats: book.seats,
+    games: book.games.map(toSeed),
+    pulls,
+    listings,
+    breakEven: book.season_cost,
+    cushion: cushionOf(env),
+    certainSales,
+    instantOffers,
+  });
+}
+
+/** Recompute the trends report and store it in KV. The daily cron calls this. */
+export async function refreshTrends(env: Env, now = new Date()): Promise<string> {
+  const raw = JSON.stringify(await buildTrends(env, now));
+  await env.BOOK.put(TRENDS_CACHE_KEY, raw);
+  return raw;
+}
+
+/** Serve the cached report; rebuild on a miss or when it is from an earlier ET day. */
 export async function trendsResponse(env: Env, now = new Date()): Promise<Response> {
+  const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=120" };
   try {
-    await ensureArchiveBackfill(env);
-    const book = await loadLiveBook(env);
-    const [pulls, listings, certainSales, instantOffers] = await Promise.all([
-      loadTrendPulls(env),
-      loadTrendListings(env),
-      loadCertainSales(env),
-      loadInstantOffers(env),
-    ]);
-    const report = buildTrendsReport({
-      today: etYmd(now),
-      section: book.section,
-      row: book.row,
-      seats: book.seats,
-      games: book.games.map(toSeed),
-      pulls,
-      listings,
-      breakEven: book.season_cost,
-      cushion: cushionOf(env),
-      certainSales,
-      instantOffers,
-    });
-    return Response.json(report, {
-      headers: { "Cache-Control": "public, max-age=120" },
-    });
+    let raw: string | null = null;
+    try {
+      raw = await env.BOOK.get(TRENDS_CACHE_KEY);
+    } catch (error) {
+      console.error("trends cache", error);
+    }
+    const today = etYmd(now);
+    if (raw && raw.includes(`"today":"${today}"`)) return new Response(raw, { headers });
+    raw = await refreshTrends(env, now);
+    return new Response(raw, { headers });
   } catch (error) {
     console.error("trends", error);
     return Response.json({ error: "unavailable" }, { status: 500 });

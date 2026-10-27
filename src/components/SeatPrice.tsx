@@ -47,6 +47,7 @@ function DollarField({
   parse,
   onCommit,
   onClear,
+  compact = false,
 }: {
   label: string;
   hint: string;
@@ -57,6 +58,7 @@ function DollarField({
   parse: (text: string) => { typeIn: number } | null;
   onCommit: (typeIn: number) => void;
   onClear: () => void;
+  compact?: boolean;
 }) {
   const [text, setText] = useState(textValue);
   const [focused, setFocused] = useState(false);
@@ -69,27 +71,30 @@ function DollarField({
 
   return (
     <label className="block min-w-0">
-      <span className="block text-[11px] font-semibold uppercase tracking-[0.07em] text-foreground/75">
-        {label}
-      </span>
-      <span className="block text-[11px] leading-tight text-muted-foreground">{hint}</span>
+      <span className="block text-[11px] font-semibold text-foreground/75">{label}</span>
+      {compact ? null : <span className="block text-[11px] leading-tight text-muted-foreground">{hint}</span>}
       <span
         className={cn(
-          "mt-1 flex min-h-12 items-center rounded-lg border bg-white px-2 lg:min-h-10",
+          "mt-1 flex items-center rounded-lg border bg-white px-2",
+          compact ? "h-9 px-1.5" : "min-h-12",
           empty ? "border-dashed border-line" : "border-[#c4bbaa]",
         )}
       >
         <span
           aria-hidden="true"
           className={cn(
-            "pr-0.5 text-lg font-bold tabular-nums",
+            "pr-0.5 font-bold tabular-nums",
+            compact ? "text-sm" : "text-lg",
             empty ? "text-muted-foreground" : "text-navy",
           )}
         >
           $
         </span>
         <input
-          className="w-full min-w-0 bg-transparent text-xl font-bold tabular-nums text-navy outline-none placeholder:text-base placeholder:font-semibold placeholder:text-[#9aa1ad] lg:text-lg"
+          className={cn(
+            "w-full min-w-0 bg-transparent font-bold tabular-nums text-navy outline-none placeholder:font-semibold placeholder:text-[#9aa1ad]",
+            compact ? "text-sm placeholder:text-sm" : "text-xl placeholder:text-base",
+          )}
           inputMode="decimal"
           autoComplete="off"
           placeholder="—"
@@ -124,25 +129,46 @@ function DollarField({
   );
 }
 
+function suggestionLines(view: SeatPriceView): string[] {
+  const suggestion = view.suggestion;
+  if (!suggestion) return [];
+  const comps = suggestion.heldPrior
+    ? `None listed today; recently around ${formatMoney(suggestion.listedMedian)}`
+    : `Similar seats ~${formatMoney(suggestion.listedMedian)}${
+        suggestion.compCount != null && suggestion.compCount > 0 ? ` · ${suggestion.compCount} listed` : ""
+      }`;
+  return [
+    `${comps}${suggestion.excludedDump ? " · one cheap 107P left out" : ""}`,
+    suggestion.label,
+    suggestion.historyNote ?? "",
+  ].filter(Boolean);
+}
+
+/**
+ * Per-seat price editor. Two linked fields (what you keep, what you type in).
+ * `compact` is the table-row version: short labels, the model notes move to a tooltip.
+ */
 export function SeatPrice({
   opponent,
   view,
-  showPair,
+  compact = false,
   onTypeIn,
   onClear,
 }: {
   opponent: string;
   view: SeatPriceView;
-  showPair: boolean;
+  compact?: boolean;
   onTypeIn: (typeIn: number) => void;
   onClear: () => void;
 }) {
   const suggestion = view.suggestion;
   const open = view.typeIn == null;
+  const notes = suggestionLines(view);
   const fields = (
-    <div className={cn("grid gap-3", showPair ? "grid-cols-2" : "grid-cols-1 min-[420px]:grid-cols-2")}>
+    <div className={cn("grid gap-2", compact ? "grid-cols-2" : "grid-cols-1 gap-3 min-[420px]:grid-cols-2")}>
       <DollarField
-        label="You keep"
+        compact={compact}
+        label={compact ? "You keep" : "You keep / seat"}
         hint="per seat"
         aria={`You keep per seat for ${opponent}`}
         textValue={keepToInput(view.keep)}
@@ -157,7 +183,8 @@ export function SeatPrice({
         onClear={onClear}
       />
       <DollarField
-        label="Type in"
+        compact={compact}
+        label={compact ? "Type in" : "Your price / seat"}
         hint="Account Manager"
         aria={`Number to type into Wizards Account Manager for ${opponent}, per seat`}
         textValue={typeToInput(view.typeIn)}
@@ -174,15 +201,33 @@ export function SeatPrice({
     </div>
   );
 
+  const reset = view.hasSaved ? (
+    <button
+      type="button"
+      className="font-semibold text-navy underline underline-offset-2"
+      onClick={onClear}
+    >
+      {suggestion ? "Use suggested" : "Clear saved price"}
+    </button>
+  ) : null;
+
+  if (compact) {
+    return (
+      <div className="min-w-0" title={open ? emptyReason(view.emptyNote) : notes.join("\n") || undefined}>
+        {fields}
+        <p className="mt-1 flex flex-wrap gap-x-2 text-xs leading-snug text-muted-foreground">
+          {open ? <span>No price yet</span> : null}
+          {suggestion ? <span>Model ${suggestion.typeIn}</span> : null}
+          {reset}
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("min-w-0", showPair ? "" : "min-w-[15.5rem]")}>
+    <div className="min-w-0">
       {open ? (
-        <div
-          className={cn(
-            "rounded-xl border border-dashed border-[#c9c1b2] bg-[#faf8f4] px-3 py-3",
-            !showPair && "px-2.5 py-2.5",
-          )}
-        >
+        <div className="rounded-xl border border-dashed border-[#c9c1b2] bg-[#faf8f4] px-3 py-3">
           <p className="text-base font-semibold text-navy">No price yet</p>
           <p className="mt-0.5 text-sm leading-snug text-muted-foreground">{emptyReason(view.emptyNote)}</p>
           <div className="mt-3">{fields}</div>
@@ -190,58 +235,17 @@ export function SeatPrice({
       ) : (
         fields
       )}
-      {showPair ? (
-        <p className="mt-3 flex items-baseline justify-between gap-3 border-t border-line pt-2.5">
-          <span className="text-sm text-muted-foreground">You keep, both seats</span>
-          <span
-            className={cn(
-              "text-xl font-bold tabular-nums",
-              view.pair == null ? "text-muted-foreground" : "text-navy",
-            )}
-          >
-            {formatMoney(view.pair)}
-          </span>
-        </p>
-      ) : null}
-      {suggestion ? (
-        <div className="mt-2 space-y-1">
-          <p className="text-[13px] leading-snug text-muted-foreground">
-            {suggestion.heldPrior ? (
-              <>
-                None listed today; recently around {formatMoney(suggestion.listedMedian)}
-              </>
-            ) : (
-              <>
-                Similar seats ~{formatMoney(suggestion.listedMedian)}
-                {suggestion.compCount != null && suggestion.compCount > 0
-                  ? ` · ${suggestion.compCount} listed`
-                  : ""}
-              </>
-            )}
-            {suggestion.excludedDump ? " · one cheap 107P left out" : ""}
-          </p>
-          <p className="text-xs leading-snug text-muted-foreground">{suggestion.label}</p>
-          {suggestion.historyNote ? (
-            <p className="text-xs leading-snug text-muted-foreground">{suggestion.historyNote}</p>
-          ) : null}
+      {notes.length ? (
+        <div className="mt-2 space-y-1 text-xs leading-snug text-muted-foreground">
+          {notes.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
         </div>
       ) : null}
       {view.hasSaved ? (
         <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
-          {view.usingOwn && suggestion ? (
-            <>
-              Suggested: type ${suggestion.typeIn}, keep {formatMoney(suggestion.keep)}.{" "}
-            </>
-          ) : (
-            <>Saved on this game. </>
-          )}
-          <button
-            type="button"
-            className="font-semibold text-navy underline underline-offset-2"
-            onClick={onClear}
-          >
-            {suggestion ? "Use suggested" : "Clear saved price"}
-          </button>
+          {view.usingOwn && suggestion ? <>Suggested: type ${suggestion.typeIn}, keep {formatMoney(suggestion.keep)}. </> : <>Saved on this game. </>}
+          {reset}
         </p>
       ) : null}
     </div>

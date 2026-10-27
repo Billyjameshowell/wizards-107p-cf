@@ -274,6 +274,13 @@ function numericAsk(
   seed: TrendsGameSeed | undefined,
   onlyThatDay: boolean,
 ): { ask: number; method: SuggestedMethod } | null {
+  const dayPoint = game.series.find((row) => row.date === asOf);
+  const dayMedian = dayPoint?.median ?? (onlyThatDay ? null : game.latestMedian);
+  if (dayMedian != null && dayMedian > 0) {
+    // Same rule as the book and the Sheet: the comp median, with the days-out/demand premium.
+    const daysOutNow = dayPoint ? daysUntil(game.date, asOf) : game.daysOut;
+    return { ask: suggestFromMedian({ listedMedian: dayMedian, daysOut: daysOutNow, demand: seed?.demand ?? null }).typeIn, method: "day-rules" };
+  }
   const leaned = outlook.asks[game.date]?.ask;
   if (positive(leaned) != null) return { ask: leaned as number, method: "model" };
   const direct = game.projection.suggestion?.ask;

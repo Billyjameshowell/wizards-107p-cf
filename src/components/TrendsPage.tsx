@@ -27,6 +27,7 @@ import {
 import { CheckedBadge } from "@/components/CheckedBadge";
 import { FreshBadge, FreshRow } from "@/components/FreshBadge";
 import { SiteNav } from "@/components/SiteNav";
+import { SitSellToggle } from "@/components/SitSellToggle";
 import { cn } from "@/lib/utils";
 
 type SortKey = "date" | "opponent" | "median" | "change7d" | "changeSinceFirst" | "projection";
@@ -162,44 +163,6 @@ function keepingNote(report: TrendsReport, game: TrendsGame, scenario: ScenarioM
   return keepingSentence(outlook, flipped, keeping);
 }
 
-function SitSellToggle({
-  value,
-  opponent,
-  onChange,
-}: {
-  value: string;
-  opponent: string;
-  onChange: (choice: ScenarioChoice) => void;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={`Sit or sell for ${opponent}`}
-      className="grid w-full max-w-[11.5rem] grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#d5cfc3]"
-    >
-      {(["Sit", "Sell"] as const).map((choice) => {
-        const selected = value === choice;
-        return (
-          <button
-            key={choice}
-            type="button"
-            aria-pressed={selected}
-            className={cn(
-              "min-h-11 rounded-lg px-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy/40",
-              selected && choice === "Sit" && "bg-sit-ink text-white",
-              selected && choice === "Sell" && "bg-sell-ink text-white",
-              !selected && "text-[#243044] hover:bg-[#f4f1ea]",
-            )}
-            onClick={() => onChange(choice)}
-          >
-            {choice}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function CashPlan({ outlook }: { outlook: SeasonOutlook }) {
   return (
     <section aria-labelledby="cash-plan-heading" className="mt-4 rounded-2xl border border-line bg-card px-4 py-4">
@@ -308,7 +271,7 @@ function SeasonTable({
                   </div>
                   {game.sold ? null : (
                     <div className="mt-2">
-                      <SitSellToggle value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => onChoose(game, choice)} />
+                      <SitSellToggle className="max-w-[11.5rem]" value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => onChoose(game, choice)} />
                     </div>
                   )}
                 </TableCell>
@@ -410,7 +373,7 @@ function SeasonCards({
           </div>
           {game.sold ? null : (
             <div className="mt-2">
-              <SitSellToggle value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => onChoose(game, choice)} />
+              <SitSellToggle className="max-w-[11.5rem]" value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => onChoose(game, choice)} />
             </div>
           )}
           <dl className="mt-3 grid grid-cols-2 gap-2">
@@ -665,7 +628,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
         {note ? <p className="mt-2 text-sm text-[#3d4654]">{note}</p> : null}
         {game.sold ? null : (
           <div className="mt-3">
-            <SitSellToggle value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => choose(game, choice)} />
+            <SitSellToggle className="max-w-[11.5rem]" value={choiceOf(game, scenario)} opponent={game.opponent} onChange={(choice) => choose(game, choice)} />
           </div>
         )}
       </section>

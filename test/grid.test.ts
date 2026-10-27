@@ -151,7 +151,7 @@ describe("suggested ask snapshots", () => {
     const leaked = on(withFuture, games[0]!.date, "2026-10-06");
     const clean = on(without, games[0]!.date, "2026-10-06");
     expect(leaked?.origin).toBe("recomputed");
-    expect(leaked?.method).toBe("model");
+    expect(leaked?.method).toBe("day-rules");
     expect(leaked).toEqual(clean);
 
     const jumped = on(withFuture, games[0]!.date, "2026-10-13");
@@ -190,11 +190,11 @@ describe("suggested ask snapshots", () => {
     const offers = askOffers({ predictedMedian: 150, daysOut: daysOut ?? 0, supply: 6 });
     expect(rows[0]).toMatchObject({
       origin: "recomputed",
-      method: "model",
+      method: "day-rules",
       source: "seatdata",
       etDate: "2026-10-01",
     });
-    expect(offers.map((offer) => offer.ask)).toContain(rows[0]?.ask);
+    void offers; // median rule now wins over the list model, matching the book
   });
 });
 

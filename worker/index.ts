@@ -1,7 +1,6 @@
 import { priceBook } from "../src/shared/book-pricing";
 import { authorizeBearer, etDateFrom } from "../src/shared/guardrails";
 import { adminStatusResponse } from "./admin-status";
-import { ensureArchiveBackfill } from "./archive-store";
 import { exportArchive } from "./export";
 import { runIngest } from "./ingest";
 import { loadLiveBook } from "./store";
@@ -9,6 +8,8 @@ import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { gridResponse } from "./grid";
 import { trendsResponse } from "./trends";
+import { salesResponse, syncSalesFromBook } from "./sales";
+import { latestTmReads, tmPortalResponse } from "./tm-portal";
 
 const PRIVATE = {
   "Cache-Control": "no-store",
@@ -16,12 +17,8 @@ const PRIVATE = {
 };
 
 export default {
-  async fetch(request, env, ctx) {
-    ctx.waitUntil(
-      ensureArchiveBackfill(env).catch((error) => {
-        console.error("price archive backfill", error);
-      }),
-    );
+  async fetch(request, env, _ctx) {
+    // Archive backfill runs from the daily cron (runIngest), not on every request: saves D1 reads.
     const url = new URL(request.url);
 
     if (url.pathname === "/admin") {
@@ -38,7 +35,9 @@ export default {
 
     if (url.pathname === "/api/book" && request.method === "GET") {
       // Re-price on every read so keep amounts and days-out match today.
-      const book = priceBook(await loadLiveBook(env), etDateFrom(new Date()));
+      const [live, tm] = await Promise.all([loadLiveBook(env), latestTmReads(env)]);
+      const priced = priceBook(live, etDateFrom(new Date()));
+      const book = { ...priced, games: priced.games.map((g) => ({ ...g, tm_portal: tm[g.date] ?? null })) };
       return Response.json(book, { headers: { "Cache-Control": "no-store" } });
     }
 
@@ -71,6 +70,14 @@ export default {
       return instantOfferApiResponse(request, env);
     }
 
+    if (url.pathname === "/api/sales" && (request.method === "GET" || request.method === "POST")) {
+      return salesResponse(request, env);
+    }
+
+    if (url.pathname === "/api/tm-portal" && (request.method === "GET" || request.method === "POST")) {
+      return tmPortalResponse(request, env);
+    }
+
     if (url.pathname.startsWith("/api/")) {
       return new Response(null, { status: 404 });
     }
@@ -79,5 +86,6 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil(runIngest(env, "cron"));
+    ctx.waitUntil(syncSalesFromBook(env).catch((error) => console.error("sales sync", error)));
   },
 } satisfies ExportedHandler<Env>;

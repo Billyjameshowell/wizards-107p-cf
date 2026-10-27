@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
-import { SearchIcon, XIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, SearchIcon, XIcon } from "lucide-react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatGameDate, formatMoney, formatShortfall, formatYear } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { SeatPrice } from "@/components/SeatPrice";
+import { SitSellToggle } from "@/components/SitSellToggle";
 import { CheckedBadge } from "@/components/CheckedBadge";
 import { FreshBadge, FreshRow } from "@/components/FreshBadge";
 import { SiteNav } from "@/components/SiteNav";
-import { latestOf } from "@shared/freshness";
+import { ageLabel, hoursSince, latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
 import {
   readPriceOverrides,
@@ -34,12 +35,13 @@ import {
   type ScenarioMap,
 } from "@/lib/scenario";
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
-import { MAX_TABLE_SCALE, MIN_TABLE_SCALE, stepTableScale } from "@/lib/table-zoom";
-import { usePinchZoom } from "@/lib/use-pinch-zoom";
 import { gameMatchesQuery } from "@/lib/game-search";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -59,78 +61,55 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: "sold", label: "Sold" },
 ];
 
-function decisionTone(value: string): "sit" | "sell" | "tbd" {
+type Tone = "sit" | "sell" | "tbd";
+
+function decisionTone(value: string): Tone {
   const key = value.toLowerCase();
   if (key === "sit" || key === "sell") return key;
   return "tbd";
 }
 
-function toneRowClass(value: string): string {
-  const tone = decisionTone(value);
-  if (tone === "sit") return "bg-sit hover:bg-sit";
-  if (tone === "sell") return "bg-sell hover:bg-sell";
-  return "bg-tbd hover:bg-tbd";
+const ROW_TONE: Record<Tone, string> = {
+  sit: "bg-sit hover:bg-sit",
+  sell: "bg-sell hover:bg-sell",
+  tbd: "bg-tbd hover:bg-tbd",
+};
+
+const CARD_ACCENT: Record<Tone, string> = {
+  sit: "border-l-sit-ink",
+  sell: "border-l-sell-ink",
+  tbd: "border-l-tbd-ink",
+};
+
+const TIP = {
+  model: "Model price: our suggested per-seat type-in for Ticketmaster (before the 5% seller fee). Median of comparable 107/108/118/119 rows J–T listings, plus any premium. Display only.",
+  yours: "Your price: the per-seat number you type into Ticketmaster (before the 5% fee). Starts at the model price or your live listing; edit to override. You keep 95% of it per seat.",
+  pair: "Pair total: Your price × 2 seats, before fees. Hover a value for the payout after the 5% fee.",
+  getIn: "Get in price: cheapest single-ticket listing anywhere in the arena (not your section), per seat, from the SeatData pull. Listing price as SeatData reports it (may include buyer fees).",
+  median: "Median price: middle listing price across the whole arena, per seat, from the SeatData pull. Asking prices, not sales (may include buyer fees).",
+};
+
+function etStamp(at: string): string {
+  return new Date(at).toLocaleString("en-US", {
+    timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
 }
 
-function ScenarioToggle({
-  value,
-  opponent,
-  onChange,
-  wide = false,
-}: {
-  value: string;
-  opponent: string;
-  onChange: (choice: ScenarioChoice) => void;
-  wide?: boolean;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={`Sit or sell for ${opponent}`}
-      className={cn(
-        "grid grid-cols-2 gap-1 rounded-xl bg-white p-1 shadow-[0_1px_1px_rgba(12,35,64,0.05)] ring-1 ring-[#d5cfc3]",
-        wide ? "w-full max-w-sm" : "w-[11.5rem]",
-      )}
-    >
-      {(["Sit", "Sell"] as const).map((choice) => {
-        const selected = value === choice;
-        return (
-          <button
-            key={choice}
-            type="button"
-            aria-pressed={selected}
-            className={cn(
-              "min-h-12 rounded-lg px-2 text-base font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy/40 lg:min-h-10 lg:text-sm",
-              selected && choice === "Sit" && "bg-sit-ink text-white shadow-sm",
-              selected && choice === "Sell" && "bg-sell-ink text-white shadow-sm",
-              !selected && "text-[#243044] hover:bg-[#f4f1ea]",
-            )}
-            onClick={() => onChange(choice)}
-          >
-            {choice}
-          </button>
-        );
-      })}
-    </div>
-  );
+function pulledAt(game: Game): string {
+  return game.comp_checked_at ? `Pulled ${etStamp(game.comp_checked_at)} ET.` : "Pull time unknown.";
 }
 
-function PreseasonMark({ type }: { type: string }) {
-  if (type !== "preseason") return null;
-  return (
-    <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-navy">
-      Preseason
-    </span>
-  );
+function pairTotal(view: SeatPriceView): number | null {
+  return view.typeIn != null ? view.typeIn * 2 : null;
 }
 
 function StatusBadge({ status, game }: { status: ListingOverride; game: Game }) {
   if (status.sold) {
     const total = soldKeepTotalOf({ sold: true, sold_keep_total: game.sold_keep_total });
     return (
-      <span className="rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
+      <Badge className="bg-emerald-700 text-white">
         Sold{total != null ? ` · ${formatMoney(total)} in` : ""}
-      </span>
+      </Badge>
     );
   }
   if (!status.listed) return null;
@@ -140,10 +119,53 @@ function StatusBadge({ status, game }: { status: ListingOverride; game: Game }) 
       : game.listed_buyer_price != null && game.listed_buyer_price > 0
         ? ` · buyer sees $${game.listed_buyer_price}`
         : "";
+  return <Badge>Listed{price}</Badge>;
+}
+
+function TmBadge({ game }: { game: Game }) {
+  const tm = game.tm_portal;
+  if (!tm || (tm.suggested == null && tm.listed_price == null)) return null;
+  const at = tm.suggested_read_at ?? tm.read_at;
+  const hours = hoursSince(at);
+  const parts = [
+    tm.suggested != null ? `TM sugg $${tm.suggested}` : `TM listed $${tm.listed_price}`,
+    tm.range_low != null && tm.range_high != null ? `$${tm.range_low}–$${tm.range_high}` : null,
+    tm.sell_now != null ? `Sell Now $${tm.sell_now}` : null,
+    hours != null ? `read ${ageLabel(hours)}` : null,
+  ].filter(Boolean);
+  const title = [at ? `Read ${etStamp(at)} ET` : null, tm.note].filter(Boolean).join(". ");
   return (
-    <span className="rounded-full bg-navy px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
-      Listed{price}
-    </span>
+    <Badge variant="outline" className="h-auto whitespace-normal border-sky-200 bg-sky-50 text-left text-sky-900" title={title || undefined}>
+      {parts.join(" · ")}
+    </Badge>
+  );
+}
+
+/** Preseason, Listed/Sold, TM read and comp freshness, wrapped on one line. */
+function GameBadges({ game, status }: { game: Game; status: ListingOverride }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {game.type === "preseason" ? <Badge variant="secondary">Preseason</Badge> : null}
+      <StatusBadge status={status} game={game} />
+      <TmBadge game={game} />
+      <CheckedBadge at={game.comp_checked_at} />
+    </div>
+  );
+}
+
+function GameLinks({ game }: { game: Game }) {
+  const link = "font-semibold text-navy underline underline-offset-2";
+  return (
+    <div className="flex flex-wrap gap-x-3 text-sm">
+      <a href={`/trends/${game.date}`} className={link}>
+        Price trend
+      </a>
+      {game.ticketdata_url ? (
+        <a className={link} href={game.ticketdata_url} target="_blank" rel="noopener noreferrer">
+          TicketData
+        </a>
+      ) : null}
+    </div>
   );
 }
 
@@ -152,36 +174,22 @@ function StatusCheck({
   name,
   checked,
   onChange,
-  showLabel = false,
 }: {
   label: string;
   name: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-  showLabel?: boolean;
 }) {
   return (
-    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap lg:min-h-8">
-      <input
-        type="checkbox"
-        className="size-4 accent-navy"
+    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap text-sm lg:min-h-7">
+      <Checkbox
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={(next) => onChange(next === true)}
+        aria-label={`${label} ${name}`}
       />
-      <span>
-        {showLabel ? `${label} ` : null}
-        {checked ? "Yes" : "No"}
-      </span>
-      <span className="sr-only">
-        {label} {name}
-      </span>
+      {label}
     </label>
   );
-}
-
-function formatType(type: string): string {
-  if (!type) return "—";
-  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 function SortMark({ direction }: { direction: SortDirection | null }) {
@@ -199,185 +207,234 @@ function SortMark({ direction }: { direction: SortDirection | null }) {
   );
 }
 
-function SortableHead({
+function SortButton({
   column,
+  label,
   sort,
   onSort,
-  className,
-  label,
 }: {
   column: SortKey;
+  label: string;
   sort: GameSort;
   onSort: (column: SortKey) => void;
-  className?: string;
-  label?: string;
 }) {
-  const heading = label ?? SORT_COLUMNS.find((item) => item.key === column)?.label ?? column;
-  const active = sort.key === column;
-  const direction = active ? sort.direction : null;
+  const direction = sort.key === column ? sort.direction : null;
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 text-left text-xs font-semibold text-navy select-none"
+      onClick={() => onSort(column)}
+    >
+      {label}
+      <SortMark direction={direction} />
+      <span className="sr-only">
+        {direction === "asc" ? ", sorted ascending" : direction === "desc" ? ", sorted descending" : ", not sorted"}
+      </span>
+    </button>
+  );
+}
+
+/** A header cell with one or more sort buttons (stacked when there are two). */
+function SortHead({
+  columns,
+  sort,
+  onSort,
+  title,
+  className,
+}: {
+  columns: { key: SortKey; label: string }[];
+  sort: GameSort;
+  onSort: (column: SortKey) => void;
+  title?: string;
+  className?: string;
+}) {
+  const active = columns.find((column) => column.key === sort.key);
   return (
     <TableHead
-      aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
-      className={className}
+      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+      title={title}
+      className={cn("h-auto bg-thead py-2 align-bottom", className)}
     >
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 text-left text-xs font-semibold text-navy select-none"
-        onClick={() => onSort(column)}
-      >
-        {heading}
-        <SortMark direction={direction} />
-        <span className="sr-only">
-          {direction === "asc" ? ", sorted ascending" : direction === "desc" ? ", sorted descending" : ", not sorted"}
-        </span>
-      </button>
+      <div className="flex flex-col items-start gap-0.5">
+        {columns.map((column) => (
+          <SortButton key={column.key} column={column.key} label={column.label} sort={sort} onSort={onSort} />
+        ))}
+      </div>
     </TableHead>
-  );
-}
-
-function TicketDataLink({ href }: { href: string | null }) {
-  if (!href) {
-    return <span className="text-muted-foreground">—</span>;
-  }
-  return (
-    <a
-      className="text-sm font-semibold text-navy underline underline-offset-2"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      TicketData
-    </a>
-  );
-}
-
-function PriceStat({
-  label,
-  caption,
-  value,
-}: {
-  label: string;
-  caption?: string;
-  value: number | null;
-}) {
-  return (
-    <div className="min-w-0 bg-[#faf8f4] px-3.5 py-2.5">
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
-      {caption ? <p className="text-[11px] leading-tight text-muted-foreground">{caption}</p> : null}
-      <dd className="mt-0.5 text-sm font-semibold tabular-nums text-foreground/80">{formatMoney(value)}</dd>
-    </div>
   );
 }
 
 function DaysOut({ date, todayEt }: { date: string; todayEt: string }) {
   const days = daysUntil(date, todayEt);
   if (days == null) return null;
-  return <span className="block text-xs font-semibold text-navy">{formatDaysOut(days)}</span>;
+  return <span className="text-xs font-semibold text-navy">{formatDaysOut(days)}</span>;
 }
 
-function cardAccent(value: string): string {
-  const tone = decisionTone(value);
-  if (tone === "sit") return "border-l-[5px] border-l-sit-ink";
-  if (tone === "sell") return "border-l-[5px] border-l-sell-ink";
-  return "border-l-[5px] border-l-tbd-ink";
+function When({ game, todayEt }: { game: Game; todayEt: string }) {
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-[#3d4654]">
+      <span className="font-semibold text-foreground">
+        {formatGameDate(game.date, game.weekday)} {formatYear(game.date)}
+      </span>
+      <span>{game.time_et} ET</span>
+      <DaysOut date={game.date} todayEt={todayEt} />
+    </p>
+  );
 }
 
-function GameCard({
-  game,
-  status,
-  view,
-  todayEt,
-  onListed,
-  onSold,
-  onDecision,
-  onTypeIn,
-  onClearPrice,
-}: {
-  game: Game;
-  status: ListingOverride;
-  view: SeatPriceView;
-  todayEt: string;
+function Money({ value, strong = false }: { value: number | null; strong?: boolean }) {
+  if (value == null) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className={cn("tabular-nums", strong ? "text-base font-bold text-navy" : "text-sm text-foreground/80")}>
+      {formatMoney(value)}
+    </span>
+  );
+}
+
+type RowHandlers = {
   onListed: (checked: boolean) => void;
   onSold: (checked: boolean) => void;
   onDecision: (choice: ScenarioChoice) => void;
   onTypeIn: (typeIn: number) => void;
   onClearPrice: () => void;
-}) {
-  const prices = buildingPrices(game);
+};
+
+type RowProps = {
+  game: Game;
+  status: ListingOverride;
+  view: SeatPriceView;
+  todayEt: string;
+  centralLabel: string;
+} & RowHandlers;
+
+function Stat({ label, value, title, strong }: { label: string; value: number | null; title?: string; strong?: boolean }) {
   return (
-    <article
-      className={cn(
-        "overflow-hidden rounded-2xl border border-line bg-card shadow-[0_1px_2px_rgba(12,35,64,0.06)]",
-        cardAccent(game.sit_or_sell),
-      )}
-    >
-      <div className={cn("px-3.5 py-3", toneRowClass(game.sit_or_sell))}>
-        <h2 className="text-[1.2rem] font-semibold leading-tight tracking-tight text-navy">
-          {game.opponent}
-        </h2>
-        <p className="mt-1 text-sm text-[#3d4654]">
-          {formatGameDate(game.date, game.weekday)} {formatYear(game.date)} · {game.time_et} ET
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <DaysOut date={game.date} todayEt={todayEt} />
-          <PreseasonMark type={game.type} />
-          <StatusBadge status={status} game={game} />
-          <CheckedBadge at={game.comp_checked_at} />
-          <a
-            href={`/trends/${game.date}`}
-            className="text-sm font-semibold text-navy underline underline-offset-2"
-          >
-            Price trend
-          </a>
+    <div className="min-w-0" title={title}>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd>
+        <Money value={value} strong={strong} />
+      </dd>
+    </div>
+  );
+}
+
+/** Phone and tablet: one card per game. */
+function GameCard({ game, status, view, todayEt, centralLabel, ...on }: RowProps) {
+  const prices = buildingPrices(game);
+  const tone = decisionTone(game.sit_or_sell);
+  return (
+    <Card className={cn("gap-0 border-l-[5px] py-0", CARD_ACCENT[tone])}>
+      <CardHeader className={cn("gap-1.5 py-3", ROW_TONE[tone])}>
+        <CardTitle className="text-lg leading-tight text-navy">{game.opponent}</CardTitle>
+        <When game={game} todayEt={todayEt} />
+        <GameBadges game={game} status={status} />
+        <SitSellToggle className="mt-1" value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} />
+      </CardHeader>
+      <CardContent className="space-y-3 py-3">
+        <SeatPrice opponent={game.opponent} view={view} onTypeIn={on.onTypeIn} onClear={on.onClearPrice} />
+        <dl className="grid grid-cols-3 gap-2">
+          <Stat
+            label="Pair total"
+            value={pairTotal(view)}
+            strong
+            title={view.pair != null ? `You keep ${formatMoney(view.pair)} after the 5% fee.` : TIP.pair}
+          />
+          <Stat label="Get in" value={prices.getIn} title={`${TIP.getIn} ${pulledAt(game)}`} />
+          <Stat label={centralLabel === "Mean" ? "Average" : "Median"} value={prices.central} title={`${TIP.median} ${pulledAt(game)}`} />
+        </dl>
+        {status.notes ? <p className="text-sm leading-snug text-muted-foreground">{status.notes}</p> : null}
+      </CardContent>
+      <CardFooter className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t py-1">
+        <StatusCheck label="Listed" name={game.opponent} checked={status.listed} onChange={on.onListed} />
+        <StatusCheck label="Sold" name={game.opponent} checked={status.sold} onChange={on.onSold} />
+        <div className="ml-auto">
+          <GameLinks game={game} />
         </div>
-        <div className="mt-2.5">
-          <ScenarioToggle wide value={game.sit_or_sell} opponent={game.opponent} onChange={onDecision} />
+      </CardFooter>
+    </Card>
+  );
+}
+
+/** Desktop: one table row per game, sized to fit the page with no sideways scroll. */
+function GameRow({ game, status, view, todayEt, centralLabel, ...on }: RowProps) {
+  const prices = buildingPrices(game);
+  const tone = decisionTone(game.sit_or_sell);
+  return (
+    <TableRow className={cn("[&>td]:py-2.5 [&>td]:align-top", ROW_TONE[tone])}>
+      <TableCell className="w-full min-w-0 whitespace-normal pl-4">
+        <div className="space-y-1">
+          <p className="font-semibold text-navy">{game.opponent}</p>
+          <When game={game} todayEt={todayEt} />
+          <GameBadges game={game} status={status} />
+          <GameLinks game={game} />
+          {status.notes ? <p className="text-xs leading-snug text-muted-foreground">{status.notes}</p> : null}
         </div>
-      </div>
+      </TableCell>
+      <TableCell>
+        <SitSellToggle className="w-28" value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} />
+      </TableCell>
+      <TableCell className="w-48 min-w-48 whitespace-normal">
+        <SeatPrice compact opponent={game.opponent} view={view} onTypeIn={on.onTypeIn} onClear={on.onClearPrice} />
+      </TableCell>
+      <TableCell
+        className="text-right"
+        title={view.pair == null ? TIP.pair : `You keep ${formatMoney(view.pair)} after the 5% fee.`}
+      >
+        <Money value={pairTotal(view)} strong />
+      </TableCell>
+      <TableCell className="text-right" title={`${TIP.getIn} ${pulledAt(game)}`}>
+        <Money value={prices.getIn} />
+      </TableCell>
+      <TableCell className="text-right" title={`${TIP.median} ${pulledAt(game)}`}>
+        <Money value={prices.central} />
+        {prices.centralKind === "mean" && centralLabel === "Median" ? (
+          <span className="block text-[11px] text-muted-foreground">average</span>
+        ) : null}
+      </TableCell>
+      <TableCell className="pr-4">
+        <div className="flex flex-col">
+          <StatusCheck label="Listed" name={game.opponent} checked={status.listed} onChange={on.onListed} />
+          <StatusCheck label="Sold" name={game.opponent} checked={status.sold} onChange={on.onSold} />
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
 
-      <div className="border-t border-line bg-white px-3.5 py-3.5">
-        <SeatPrice
-          opponent={game.opponent}
-          view={view}
-          showPair
-          onTypeIn={onTypeIn}
-          onClear={onClearPrice}
-        />
-      </div>
-
-      <dl className="grid grid-cols-2 gap-px border-t border-line bg-line">
-        <PriceStat label="Cheapest in the arena" caption="Not your seats" value={prices.getIn} />
-        <PriceStat
-          label={prices.centralKind === "mean" ? "Arena average" : "Middle of the arena"}
-          caption="Whole building"
-          value={prices.central}
-        />
-      </dl>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-3.5 py-2 text-sm">
-        <StatusCheck
-          label="Listed"
-          name={game.opponent}
-          checked={status.listed}
-          onChange={onListed}
-          showLabel
-        />
-        <StatusCheck
-          label="Sold"
-          name={game.opponent}
-          checked={status.sold}
-          onChange={onSold}
-          showLabel
-        />
-        <TicketDataLink href={game.ticketdata_url} />
-      </div>
-
-      {status.notes ? (
-        <p className="border-t border-line px-3.5 py-2.5 text-sm leading-snug text-muted-foreground">
-          {status.notes}
-        </p>
-      ) : null}
-    </article>
+function SortPicker({
+  sort,
+  centralLabel,
+  onChange,
+}: {
+  sort: GameSort;
+  centralLabel: string;
+  onChange: (sort: GameSort) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <Select value={sort.key} onValueChange={(key) => onChange({ key: key as SortKey, direction: "asc" })}>
+        <SelectTrigger aria-label="Sort games" className="h-11 min-w-36 bg-background lg:h-8">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SORT_COLUMNS.map((column) => (
+            <SelectItem key={column.key} value={column.key}>
+              {column.key === "central" ? (centralLabel === "Mean" ? "Average price" : "Median price") : column.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-11 lg:size-8"
+        aria-label={sort.direction === "asc" ? "Sorted ascending, switch to descending" : "Sorted descending, switch to ascending"}
+        onClick={() => onChange({ ...sort, direction: sort.direction === "asc" ? "desc" : "asc" })}
+      >
+        {sort.direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />}
+      </Button>
+    </div>
   );
 }
 
@@ -395,7 +452,6 @@ export function TicketBook({
   const [query, setQuery] = useState("");
   const [copyLabel, setCopyLabel] = useState("Copy status");
   const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
-  const { scale, setScale, bind } = usePinchZoom();
   const todayEt = useMemo(() => etYmd(new Date()), []);
 
   const games = useMemo(
@@ -410,6 +466,8 @@ export function TicketBook({
         const live = { ...game, listed: status.listed, sold: status.sold, listed_ask: status.listed_ask };
         const view = seatPriceForGame(game, startingTypeIn(live, overrides[game.date] ?? null), todayEt);
         const soldTotal = soldKeepTotalOf(live);
+        // A game already played and never sold brings nothing; keep it out of the plan.
+        if (soldTotal == null && !live.sold && game.date < todayEt) live.sold = true;
         return {
           source: game,
           view,
@@ -542,13 +600,23 @@ export function TicketBook({
       ? `Nothing in yet toward ${formatMoney(book.season_cost)}`
       : `${formatMoney(banked)} in toward ${formatMoney(book.season_cost)}`;
 
+  function handlersFor(date: string): RowHandlers {
+    return {
+      onListed: (checked) => patchStatus(date, { listed: checked }),
+      onSold: (checked) => patchStatus(date, { sold: checked }),
+      onDecision: (choice) => setDecision(date, choice),
+      onTypeIn: (typeIn) => saveTypeIn(date, typeIn),
+      onClearPrice: () => clearPrice(date),
+    };
+  }
+
   const emptyMessage =
     visible.length === 0 ? (
-      <div className="px-4 py-7 text-center text-muted-foreground">No games match this filter.</div>
+      <div className="px-4 py-7 text-center text-muted-foreground md:col-span-2">No games match this filter.</div>
     ) : null;
 
   return (
-    <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
+    <div className="mx-auto max-w-[1280px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
@@ -573,7 +641,7 @@ export function TicketBook({
 
       <section
         aria-label="Season summary"
-        className="sticky top-0 z-40 -mx-3 mt-3 border-y border-line bg-[#f4f1ea]/95 px-3 py-2 shadow-[0_8px_18px_rgba(12,35,64,0.06)] backdrop-blur-md sm:-mx-4 sm:px-4 lg:static lg:rounded-xl lg:border lg:px-4 lg:py-3 lg:shadow-none lg:backdrop-blur-none"
+        className="sticky top-0 z-40 -mx-3 mt-3 border-y border-line bg-[#f4f1ea]/95 px-3 py-2 shadow-[0_8px_18px_rgba(12,35,64,0.06)] backdrop-blur-md sm:-mx-4 sm:px-4 lg:static lg:mx-0 lg:rounded-xl lg:border lg:px-4 lg:py-3 lg:shadow-none lg:backdrop-blur-none"
       >
         <div className="flex flex-col gap-1 lg:flex-row lg:flex-wrap lg:items-baseline lg:justify-between lg:gap-x-6">
           <p className="text-[15px] font-semibold leading-snug text-navy">
@@ -608,12 +676,8 @@ export function TicketBook({
         </div>
       </section>
 
-      <div className="my-3 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
-        <div
-          className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
-          role="group"
-          aria-label="Filter games"
-        >
+      <div className="my-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter games">
           {FILTERS.map((item) => (
             <Button
               key={item.id}
@@ -621,27 +685,28 @@ export function TicketBook({
               size="sm"
               variant={filter === item.id ? "default" : "outline"}
               aria-pressed={filter === item.id}
-              className="h-11 shrink-0 px-3.5 lg:h-8"
+              className="h-11 px-3.5 lg:h-8"
               onClick={() => setFilter(item.id)}
             >
               {item.label}
             </Button>
           ))}
         </div>
-        <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0">
+        <div className="flex flex-wrap items-center gap-1.5 lg:ml-auto">
           <span className="text-sm text-muted-foreground">
             {visible.length} of {book.games.length}
           </span>
-          <Button type="button" size="sm" variant="outline" onClick={copyStatus}>
+          <Button type="button" size="sm" variant="outline" className="h-9 lg:h-8" onClick={copyStatus}>
             {copyLabel}
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={clearLocal}>
+          <Button type="button" size="sm" variant="outline" className="h-9 lg:h-8" onClick={clearLocal}>
             Clear listed and sold
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
+            className="h-9 lg:h-8"
             onClick={resetScenario}
             disabled={Object.keys(scenario).length === 0}
           >
@@ -650,247 +715,81 @@ export function TicketBook({
         </div>
       </div>
 
-      <div role="search" className="mb-3">
-        <InputGroup className="h-11 min-h-11 bg-background">
-          <InputGroupAddon align="inline-start" className="pl-3">
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search games (team, date, notes)"
-            aria-label="Search games"
-            className="h-11 text-base md:text-sm [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
-          />
-          {query ? (
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                aria-label="Clear search"
-                size="icon-sm"
-                className="size-11"
-                onClick={() => setQuery("")}
-              >
-                <XIcon />
-              </InputGroupButton>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div role="search" className="min-w-0 flex-1 basis-64">
+          <InputGroup className="h-11 bg-background lg:h-9">
+            <InputGroupAddon align="inline-start" className="pl-3">
+              <SearchIcon />
             </InputGroupAddon>
-          ) : null}
-        </InputGroup>
-      </div>
-
-      <div
-        className={cn(
-          "mb-3 flex-wrap items-center justify-between gap-2",
-          scale === 1 ? "hidden lg:flex" : "flex",
-        )}
-      >
-        <p className="text-xs text-muted-foreground">Pinch or Ctrl+scroll to resize.</p>
-        <div className="flex items-center gap-1.5" role="group" aria-label="Table size">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label="Zoom out"
-            disabled={scale <= MIN_TABLE_SCALE}
-            onClick={() => setScale(stepTableScale(scale, -1))}
-          >
-            −
-          </Button>
-          <span className="min-w-12 text-center text-sm tabular-nums">{Math.round(scale * 100)}%</span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label="Zoom in"
-            disabled={scale >= MAX_TABLE_SCALE}
-            onClick={() => setScale(stepTableScale(scale, 1))}
-          >
-            +
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setScale(1)} disabled={scale === 1}>
-            Reset
-          </Button>
-        </div>
-      </div>
-
-      <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:hidden" role="group" aria-label="Sort games">
-        {SORT_COLUMNS.map((column) => {
-          const active = sort.key === column.key;
-          const label = column.key === "central" ? (centralLabel === "Mean" ? "Arena average" : "Arena middle") : column.label;
-          return (
-            <Button
-              key={column.key}
-              type="button"
-              size="sm"
-              variant={active ? "default" : "outline"}
-              aria-pressed={active}
-              className="h-11 shrink-0 px-3 lg:h-8"
-              onClick={() => chooseSort(column.key)}
-            >
-              {label}
-              <SortMark direction={active ? sort.direction : null} />
-            </Button>
-          );
-        })}
-      </div>
-
-      <div
-        ref={bind}
-        className="lg:hidden"
-        style={{ touchAction: "pan-x pan-y", zoom: scale }}
-      >
-        <div className="space-y-3">
-          {visible.map(({ game, status, view }) => (
-            <GameCard
-              key={game.date}
-              game={game}
-              status={status}
-              view={view}
-              todayEt={todayEt}
-              onListed={(checked) => patchStatus(game.date, { listed: checked })}
-              onSold={(checked) => patchStatus(game.date, { sold: checked })}
-              onDecision={(choice) => setDecision(game.date, choice)}
-              onTypeIn={(typeIn) => saveTypeIn(game.date, typeIn)}
-              onClearPrice={() => clearPrice(game.date)}
+            <InputGroupInput
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search games (team, date, notes)"
+              aria-label="Search games"
+              className="text-base md:text-sm [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
             />
-          ))}
-          {emptyMessage}
+            {query ? (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton aria-label="Clear search" size="icon-sm" onClick={() => setQuery("")}>
+                  <XIcon />
+                </InputGroupButton>
+              </InputGroupAddon>
+            ) : null}
+          </InputGroup>
         </div>
+        <SortPicker sort={sort} centralLabel={centralLabel} onChange={setSort} />
       </div>
 
-      <Card className="hidden min-w-0 overflow-hidden border-line py-0 shadow-[0_10px_30px_rgba(11,31,58,0.12)] lg:flex">
-        <div
-          ref={bind}
-          className="min-h-0 min-w-0 w-full max-h-[min(72vh,820px)] overflow-auto"
-          style={{ touchAction: "pan-x pan-y" }}
-        >
-          <div style={{ zoom: scale }}>
-            <div className="min-w-[1620px]">
-              <Table className="ticket-table">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <SortableHead column="date" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="opponent" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="type" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="time" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="sit_or_sell" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="advised_ask" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="cash" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead
-                    column="get_in"
-                    label="Cheapest in the arena"
-                    sort={sort}
-                    onSort={chooseSort}
-                    className="bg-thead"
-                  />
-                  <SortableHead
-                    column="central"
-                    label={centralLabel === "Mean" ? "Arena average" : "Middle of the arena"}
-                    sort={sort}
-                    onSort={chooseSort}
-                    className="bg-thead"
-                  />
-                  <SortableHead column="listed" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="sold" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="ticketdata" sort={sort} onSort={chooseSort} className="bg-thead" />
-                  <SortableHead column="notes" sort={sort} onSort={chooseSort} className="bg-thead" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visible.map(({ game, status, view }) => {
-                  const prices = buildingPrices(game);
-                  return (
-                  <TableRow
-                    key={game.date}
-                    data-tone={decisionTone(game.sit_or_sell)}
-                    className={cn("[&>td]:align-top [&>td]:py-3", toneRowClass(game.sit_or_sell))}
-                  >
-                    <TableCell className="whitespace-nowrap font-semibold">
-                      {formatGameDate(game.date, game.weekday)}
-                      <span className="block text-xs font-medium text-muted-foreground">
-                        {formatYear(game.date)}
-                      </span>
-                      <DaysOut date={game.date} todayEt={todayEt} />
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-semibold text-navy">{game.opponent}</span>{" "}
-                      <PreseasonMark type={game.type} />{" "}
-                      <StatusBadge status={status} game={game} />{" "}
-                      <CheckedBadge at={game.comp_checked_at} />
-                      <a
-                        href={`/trends/${game.date}`}
-                        className="mt-1 block text-sm font-semibold text-navy underline underline-offset-2"
-                      >
-                        Price trend
-                      </a>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{formatType(game.type)}</TableCell>
-                    <TableCell className="text-muted-foreground">{game.time_et}</TableCell>
-                    <TableCell>
-                      <ScenarioToggle
-                        value={game.sit_or_sell}
-                        opponent={game.opponent}
-                        onChange={(choice) => setDecision(game.date, choice)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <SeatPrice
-                        opponent={game.opponent}
-                        view={view}
-                        showPair={false}
-                        onTypeIn={(typeIn) => saveTypeIn(game.date, typeIn)}
-                        onClear={() => clearPrice(game.date)}
-                      />
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {view.pair == null ? (
-                        <span className="text-sm font-medium text-muted-foreground">No price yet</span>
-                      ) : (
-                        <span className="text-lg font-bold tabular-nums text-navy">{formatMoney(view.pair)}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
-                      {formatMoney(prices.getIn)}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
-                      {formatMoney(prices.central)}
-                      {prices.centralKind === "mean" && centralLabel === "Median" ? (
-                        <span className="ml-1 text-[11px] font-medium uppercase tracking-wide">
-                          Average
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <StatusCheck
-                        label="Listed"
-                        name={game.opponent}
-                        checked={status.listed}
-                        onChange={(checked) => patchStatus(game.date, { listed: checked })}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <StatusCheck
-                        label="Sold"
-                        name={game.opponent}
-                        checked={status.sold}
-                        onChange={(checked) => patchStatus(game.date, { sold: checked })}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <TicketDataLink href={game.ticketdata_url} />
-                    </TableCell>
-                    <TableCell className="max-w-[220px] whitespace-normal text-sm text-muted-foreground">
-                      {status.notes || "—"}
-                    </TableCell>
-                  </TableRow>
-                  );
-                })}
-              </TableBody>
-              </Table>
-            </div>
-          </div>
-          {emptyMessage}
-        </div>
+      <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+        {visible.map((row) => (
+          <GameCard key={row.game.date} {...row} {...handlersFor(row.game.date)} todayEt={todayEt} centralLabel={centralLabel} />
+        ))}
+        {emptyMessage}
+      </div>
+
+      <Card className="hidden gap-0 border-line py-0 shadow-[0_10px_30px_rgba(11,31,58,0.12)] lg:flex">
+        <Table className="table-auto">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <SortHead
+                className="pl-4"
+                columns={[
+                  { key: "date", label: "Date" },
+                  { key: "opponent", label: "Opponent" },
+                ]}
+                sort={sort}
+                onSort={chooseSort}
+              />
+              <SortHead columns={[{ key: "sit_or_sell", label: "Sit or Sell" }]} sort={sort} onSort={chooseSort} />
+              <SortHead columns={[{ key: "advised_ask", label: "Your price" }]} sort={sort} onSort={chooseSort} title={`${TIP.yours} ${TIP.model}`} />
+              <SortHead columns={[{ key: "cash", label: "Pair" }]} sort={sort} onSort={chooseSort} title={TIP.pair} className="text-right [&>div]:items-end" />
+              <SortHead columns={[{ key: "get_in", label: "Get in" }]} sort={sort} onSort={chooseSort} title={TIP.getIn} className="text-right [&>div]:items-end" />
+              <SortHead
+                columns={[{ key: "central", label: centralLabel === "Mean" ? "Average" : "Median" }]}
+                sort={sort}
+                onSort={chooseSort}
+                title={TIP.median}
+                className="text-right [&>div]:items-end"
+              />
+              <SortHead
+                columns={[
+                  { key: "listed", label: "Listed" },
+                  { key: "sold", label: "Sold" },
+                ]}
+                sort={sort}
+                onSort={chooseSort}
+                className="pr-4"
+              />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visible.map((row) => (
+              <GameRow key={row.game.date} {...row} {...handlersFor(row.game.date)} todayEt={todayEt} centralLabel={centralLabel} />
+            ))}
+          </TableBody>
+        </Table>
+        {emptyMessage}
       </Card>
 
       <details className="mt-4 rounded-xl border border-line bg-card px-4 py-3 text-sm leading-relaxed text-[#3d4654]">
