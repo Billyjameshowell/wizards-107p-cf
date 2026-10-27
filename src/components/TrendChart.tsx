@@ -293,6 +293,15 @@ export function PriceTrendChart({
               : `Instant offer ${formatMoney(floor)} a seat, under these prices`}
           </span>
         ) : null}
+        {projection.enough && projection.price != null ? (
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="28" height="12" aria-hidden="true" className="shrink-0">
+              <line x1="14" y1="1" x2="14" y2="11" stroke={NAVY} strokeWidth="4" strokeLinecap="round" opacity="0.35" />
+              <circle cx="14" cy="6" r="4" fill="#f6f3ea" stroke={NAVY} strokeWidth="2" />
+            </svg>
+            Estimated price by tip
+          </span>
+        ) : null}
         <span className="inline-flex items-center gap-1.5">
           <LegendSwatch stroke={RED} dashed /> Today
         </span>

@@ -721,7 +721,7 @@ function assembleTrends(input: {
     }
     const chosen = outlook.asks[game.date];
     if (!chosen) continue;
-    game.projection = { ...game.projection, suggestion: suggestionFromOffer(chosen, outlook.lean) };
+    game.projection = { ...game.projection, suggestion: suggestionFromOffer(chosen) };
   }
 
   games.sort((a, b) => a.date.localeCompare(b.date) || a.opponent.localeCompare(b.opponent));

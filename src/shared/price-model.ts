@@ -296,14 +296,6 @@ export function isWeekendGame(weekday: string, date: string): boolean {
   return day === 0 || day === 6;
 }
 
-export function winRateOf(wins: number | null | undefined, losses: number | null | undefined): number | null {
-  if (wins == null || losses == null) return null;
-  if (!Number.isFinite(wins) || !Number.isFinite(losses) || wins < 0 || losses < 0) return null;
-  const played = wins + losses;
-  if (played <= 0) return null;
-  return wins / played;
-}
-
 /** Restricted cubic spline, scaled so each column stays near a small number. */
 export function daysOutBasis(daysOut: number, knots: readonly number[] = KNOTS): [number, number, number] {
   const x = Math.max(0, daysOut);
@@ -572,13 +564,7 @@ export function takeInstantSuggestion(total: number, perTicket: number): ListSug
   };
 }
 
-export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSuggestion {
-  const leanBit =
-    lean === "safer"
-      ? " The goal is at risk, so it leans toward a price that sells."
-      : lean === "patient"
-        ? " The goal looks safe, so it holds out a little."
-        : "";
+export function suggestionFromOffer(offer: AskOffer): ListSuggestion {
   return {
     ask: offer.ask,
     hold: false,
@@ -586,7 +572,7 @@ export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSug
     expectedKeep: offer.expected,
     takeInstant: false,
     instantTotal: null,
-    sentence: `Ask ${dollars(offer.ask)} a seat. The chance it sells before tip is ${formatChance(offer.chance)}, and the pair should bring about ${dollars(offer.expected)} after the 5% fee.${leanBit}`,
+    sentence: `Ask ${dollars(offer.ask)} a seat. The chance it sells before tip is ${formatChance(offer.chance)}, and the pair should bring about ${dollars(offer.expected)} after the 5% fee.`,
   };
 }
 
@@ -1305,7 +1291,7 @@ function outlookSentence(outlook: SeasonOutlook): string {
       : outlook.lean === "patient"
         ? "Goal looks safe, so asks hold out a little."
         : "Asks go for the most expected cash.";
-  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all. The chance of clearing the goal is ${formatChance(outlook.chance)}.${missing} ${lean}`;
+  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all at the suggested asks. The chance of clearing the goal is ${formatChance(outlook.chance)}.${missing} ${lean}`;
 }
 
 function sampleFromSale(sale: ProbableSale, certain: boolean): SaleSample | null {
