@@ -522,14 +522,6 @@ export function proxySales(pulls: readonly TrendPull[], listings: readonly Trend
   return detectLikelySales(compSnaps(pulls, listings));
 }
 
-export function outlookFor(
-  games: readonly TrendsGame[],
-  keeping: (game: TrendsGame) => boolean,
-  options?: { breakEven?: number; cushion?: number },
-): SeasonOutlook {
-  return planSeason(cashGamesFor(games, keeping), options);
-}
-
 function assembleTrends(input: {
   today: string;
   games: readonly TrendsGameSeed[];

@@ -38,7 +38,6 @@ export function priceBook(book: Book, todayEt: string): Book {
     }
     if (game.sold || (game.date < todayEt && game.sit_or_sell === "Sell")) {
       // Sold with no amount on file, or played and never sold: no cash to project.
-      // Sold with no amount on file: never show a guess as his cash.
       return { ...game, advised_ask: null, cash_both_after_fee: null };
     }
     const view = seatPriceForGame(game, startingTypeIn(game, null), todayEt);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { pairFromTypeIn } from "@shared/book";
+import { pairFromTypeIn, SELLER_KEEP_RATE } from "@shared/book";
 import { formatGameDate, formatMoney } from "@shared/format";
 import { freshness, type FreshTone } from "@shared/freshness";
 import {
@@ -203,7 +203,7 @@ export function GridPage() {
           <SiteNav current="grid" admin />
         </div>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          Per-seat type-in prices for {grid.games.length} games over {grid.days.length} days, newest day first.
+          Each cell is a per-seat type-in price, with {grid.games.length} games over {grid.days.length} days and the newest day first.
         </p>
       </header>
 
@@ -261,7 +261,8 @@ export function GridPage() {
           </div>
         </div>
         <p className="m-0 text-xs leading-snug text-muted-foreground">
-          Each price is the per-seat number to type in. Keep is that number × 2 × 0.95, what both seats pay after the 5% fee.
+          Each price is the per-seat number to type in. You keep that number × 2 × {SELLER_KEEP_RATE} for both seats after
+          the {Math.round((1 - SELLER_KEEP_RATE) * 100)}% fee.
           Green is under 24 hours, amber under 72, red is older. A dash means no pull that day.
         </p>
         <p className="m-0 min-h-6 text-sm font-medium text-navy" role="status">

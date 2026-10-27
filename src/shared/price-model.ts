@@ -11,6 +11,7 @@
  */
 
 import { PAIR_SEATS, SEASON_COST_DEFAULT, SELLER_KEEP_RATE } from "./book";
+import { formatChance } from "./format";
 
 export const MODEL_VERSION = "1";
 export const NOT_ENOUGH_DATA = "There isn't enough data yet.";
@@ -20,7 +21,6 @@ export const MIN_SNAPSHOTS = 5;
 export const TRUST_ROWS = 800;
 /** About half of a 43-game home slate. */
 export const TRUST_OBSERVED_GAMES = 22;
-export const HOME_SLATE = 43;
 /** Break-even net plus this share. 15% of $6,000 is a $6,900 season goal. */
 export const SEASON_CUSHION_DEFAULT = 0.15;
 /** A vanished pair this many days before tip can count as a possible sale. */
@@ -339,7 +339,7 @@ export function modelExplainer(): string {
   return [
     "It reads similar-seat prices for every home game, leaving out singles.",
     "It learns how prices move as tip nears, then lets a hot or cold game run above or below that path.",
-    "Opponent, weekend tips, national TV, seats for sale and the Wizards' record nudge the number.",
+    "Opponent, weekend tips, national TV and seats for sale nudge the number.",
     "Until there's most of a season of checks, it leans on the latest middle and says Early estimate. Under five checks, it waits.",
     "The goal is $6,000 after fees plus 15%. Each ask is the price that adds the most expected cash after the 5% fee. Sit games are left out.",
     "When the goal is at risk, asks lean toward selling; when it looks safe, they hold out.",
@@ -573,7 +573,6 @@ export function takeInstantSuggestion(total: number, perTicket: number): ListSug
 }
 
 export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSuggestion {
-  const chancePct = Math.round(offer.chance * 100);
   const leanBit =
     lean === "safer"
       ? " The goal is at risk, so it leans toward a price that sells."
@@ -587,7 +586,7 @@ export function suggestionFromOffer(offer: AskOffer, lean?: SeasonLean): ListSug
     expectedKeep: offer.expected,
     takeInstant: false,
     instantTotal: null,
-    sentence: `Ask ${dollars(offer.ask)} a seat: about a ${chancePct}% chance it sells before tip, and about ${dollars(offer.expected)} for the pair after the 5% fee.${leanBit}`,
+    sentence: `Ask ${dollars(offer.ask)} a seat. The chance it sells before tip is ${formatChance(offer.chance)}, and the pair should bring about ${dollars(offer.expected)} after the 5% fee.${leanBit}`,
   };
 }
 
@@ -678,12 +677,11 @@ export function withKeeping(games: readonly CashGame[], date: string, keeping: b
 export function keepingSentence(current: SeasonOutlook, flipped: SeasonOutlook, keepingNow: boolean): string {
   const fromCash = dollars(current.expectedTotal);
   const toCash = dollars(flipped.expectedTotal);
-  const fromChance = Math.round(current.chance * 100);
-  const toChance = Math.round(flipped.chance * 100);
-  if (keepingNow) {
-    return `On Sit, so it's out of the cash plan. Selling moves season cash ${fromCash} → ${toCash} and the goal chance ${fromChance}% → ${toChance}%.`;
-  }
-  return `Sitting instead moves season cash ${fromCash} → ${toCash} and the goal chance ${fromChance}% → ${toChance}%.`;
+  const fromChance = formatChance(current.chance);
+  const toChance = formatChance(flipped.chance);
+  const goal = fromChance === toChance ? `the goal chance stays at ${fromChance}` : `the goal chance goes from ${fromChance} to ${toChance}`;
+  const move = `season cash goes from ${fromCash} to ${toCash}, and ${goal}.`;
+  return keepingNow ? `This game is on Sit, so it's out of the cash plan. If you sell, ${move}` : `If you sit instead, ${move}`;
 }
 
 /** Chance the independent sale outcomes reach `target` after `banked` is counted. */
@@ -1307,7 +1305,7 @@ function outlookSentence(outlook: SeasonOutlook): string {
       : outlook.lean === "patient"
         ? "Goal looks safe, so asks hold out a little."
         : "Asks go for the most expected cash.";
-  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all, with about a ${Math.round(outlook.chance * 100)}% chance of clearing the goal.${missing} ${lean}`;
+  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all. The chance of clearing the goal is ${formatChance(outlook.chance)}.${missing} ${lean}`;
 }
 
 function sampleFromSale(sale: ProbableSale, certain: boolean): SaleSample | null {

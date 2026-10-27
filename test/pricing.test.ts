@@ -66,7 +66,7 @@ describe("suggestFromMedian", () => {
     expect(suggestion.keep).toBe(keepFromTypeIn(175));
     expect(suggestion.pair).toBe(pairFromTypeIn(175));
     expect(suggestion.stance).toBe("at");
-    expect(suggestion.label).toContain("Priced at the middle of similar seats");
+    expect(suggestion.label).toContain("The ask sits at the middle of similar seats");
   });
 
   it("sits about 10% above the middle on a bigger game more than three weeks out", () => {
