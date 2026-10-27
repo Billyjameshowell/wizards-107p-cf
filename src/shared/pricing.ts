@@ -246,12 +246,12 @@ export function seriousCompMedian(listings: CompListing[]): CompMedian {
 }
 
 function stanceLabel(stance: Stance, demand: Demand | null, daysOut: number | null): string {
-  if (stance === "above") return "About 10% over the middle: big game, 3+ weeks out.";
-  if (stance === "below") return "About 5% under the middle: soft game, inside 2 weeks.";
-  if (daysOut != null && daysOut < 0) return "At the middle. This game has tipped.";
-  if (demand === "bigger") return daysOut == null ? "At the middle. Big game." : "At the middle: big game, but inside 3 weeks.";
-  if (demand === "soft") return daysOut == null ? "At the middle. Soft game." : "At the middle: soft game, but 2+ weeks out.";
-  return "At the middle of similar seats.";
+  if (stance === "above") return "Priced about 10% over the middle because this big game is 3+ weeks out.";
+  if (stance === "below") return "Priced about 5% under the middle because this soft game is inside 2 weeks.";
+  const upcoming = daysOut != null && daysOut >= 0;
+  if (upcoming && demand === "bigger") return "Priced at the middle because this big game is inside 3 weeks.";
+  if (upcoming && demand === "soft") return "Priced at the middle because this soft game is still 2+ weeks out.";
+  return "Priced at the middle of similar seats.";
 }
 
 export function suggestFromMedian(args: {

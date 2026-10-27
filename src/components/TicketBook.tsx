@@ -618,15 +618,12 @@ export function TicketBook({
   return (
     <div className="mx-auto max-w-[1280px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
-            Capital One Arena · Section {book.section} Row {book.row} · seats {book.seats.join("–")}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-heading text-[24px] leading-none tracking-tight sm:text-[30px]">Wizards 107P</h1>
           <SiteNav current="book" admin />
         </div>
-        <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Wizards 107P</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          {book.games.length} home games · prices per seat
+          {book.games.length} home games for seats {book.seats.join("–")} in Section {book.section}, Row {book.row}. Prices are per seat.
         </p>
         <FreshRow className="mt-2">
           <FreshBadge source="Comps" at={latestOf(book.games.map((g) => g.comp_checked_at))} />
