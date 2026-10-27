@@ -10,7 +10,7 @@ import {
   type ListSuggestion,
   type SeasonOutlook,
 } from "@shared/price-model";
-import { formatGameDate, formatMoney, formatYear } from "@shared/format";
+import { formatChance, formatGameDate, formatMoney, formatYear } from "@shared/format";
 import { formatDaysOut } from "@shared/pricing";
 import { readScenario, writeScenario, type ScenarioChoice, type ScenarioMap } from "@/lib/scenario";
 import { DaysOutChart, PriceTrendChart, Sparkline } from "@/components/TrendChart";
@@ -183,7 +183,7 @@ function CashPlan({ outlook }: { outlook: SeasonOutlook }) {
           <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Odds of {formatMoney(outlook.target)}
           </dt>
-          <dd className="text-lg font-semibold tabular-nums text-navy">{Math.round(outlook.chance * 100)}%</dd>
+          <dd className="text-lg font-semibold tabular-nums text-navy">{formatChance(outlook.chance)}</dd>
         </div>
       </dl>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -330,7 +330,7 @@ function AskLine({ game, outlook, scenario }: { game: TrendsGame; outlook: Seaso
   return (
     <p className="mt-1 text-xs font-medium text-navy">
       Suggested ask {formatMoney(suggestion.ask)}
-      {suggestion.saleChance != null ? ` · ${Math.round(suggestion.saleChance * 100)}% chance` : ""}
+      {suggestion.saleChance != null ? ` · ${formatChance(suggestion.saleChance)} chance` : ""}
     </p>
   );
 }
@@ -454,7 +454,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
           <h1 className="font-heading text-[24px] leading-none tracking-tight sm:text-[30px]">Price trends</h1>
           <SiteNav current="trends" />
         </div>
-        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">Per-seat prices for seats like Section {report.section}, Row {report.row}.</p>
+        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">Prices are per seat, for seats like Section {report.section}, Row {report.row}.</p>
         <FreshRow className="mt-2">
           <FreshBadge source="Comps" at={report.lastPulledAt} />
           <FreshBadge source="Instant offers" at={report.lastOfferAt} />
@@ -556,8 +556,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
             you keep 95%, both seats pay double.
           </p>
           <p>
-            7-day compares today&apos;s median with a week ago. By tip is the model&apos;s game-day price. Under five
-            checks, there isn&apos;t enough data yet.
+            7-day compares today&apos;s median with a week ago. By tip is the model&apos;s game-day price.
           </p>
         </div>
       </details>
@@ -642,7 +641,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
       </dl>
       <p className="mt-2 text-xs text-muted-foreground">
         Per seat unless noted · season: {formatMoney(outlook.expectedTotal)} expected,{" "}
-        {Math.round(outlook.chance * 100)}% odds of {formatMoney(outlook.target)} · suggestions only, nothing is listed
+        {formatChance(outlook.chance)} odds of {formatMoney(outlook.target)} · suggestions only, nothing is listed
         automatically
       </p>
 

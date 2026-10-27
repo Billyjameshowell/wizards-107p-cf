@@ -23,8 +23,15 @@ export function formatMoney(value: number | null | undefined): string {
   }).format(value);
 }
 
+/** A model probability for display. Rounding never shows 0% or 100%, since neither is ever certain. */
+export function formatChance(probability: number): string {
+  if (probability >= 0.995) return "over 99%";
+  if (probability < 0.005) return "under 1%";
+  return `${Math.round(probability * 100)}%`;
+}
+
 export function formatShortfall(vs6k: number, seasonCost: number): string {
-  const target = formatMoney(seasonCost);
+  const target = `the ${formatMoney(seasonCost)} season cost`;
   if (vs6k < 0) return `${formatMoney(Math.abs(vs6k))} short of ${target}`;
   if (vs6k > 0) return `${formatMoney(vs6k)} over ${target}`;
   return `Even with ${target}`;

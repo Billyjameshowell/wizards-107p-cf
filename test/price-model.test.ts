@@ -334,7 +334,7 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(kept.chance).toBeLessThan(both.chance);
     expect(kept.kept).toBe(1);
     const note = keepingSentence(both, kept, false);
-    expect(note).toMatch(/Sitting instead moves season cash/);
+    expect(note).toMatch(/If you sit instead, season cash goes from/);
     expect(note).not.toMatch(/Nothing is listed/);
   });
 
@@ -544,5 +544,15 @@ describe("opponent tiers", () => {
     expect(opponentTier("LA  Clippers", undefined)).toBe("soft");
     expect(opponentTier("Detroit Pistons", "bigger")).toBe("marquee");
     expect(opponentTier("Houston Rockets", "soft")).toBe("soft");
+  });
+});
+
+describe("chance display", () => {
+  it("never shows a model probability as 0% or 100%", async () => {
+    const { formatChance } = await import("@shared/format");
+    expect(formatChance(1)).toBe("over 99%");
+    expect(formatChance(0.996)).toBe("over 99%");
+    expect(formatChance(0.72)).toBe("72%");
+    expect(formatChance(0.001)).toBe("under 1%");
   });
 });

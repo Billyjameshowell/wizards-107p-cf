@@ -597,8 +597,8 @@ export function TicketBook({
   ).length;
   const cashLine =
     banked === 0
-      ? `Nothing in yet toward ${formatMoney(book.season_cost)}`
-      : `${formatMoney(banked)} in toward ${formatMoney(book.season_cost)}`;
+      ? `Nothing in yet toward the ${formatMoney(book.season_cost)} season cost`
+      : `${formatMoney(banked)} in toward the ${formatMoney(book.season_cost)} season cost`;
 
   function handlersFor(date: string): RowHandlers {
     return {
@@ -623,7 +623,7 @@ export function TicketBook({
           <SiteNav current="book" admin />
         </div>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          {book.games.length} home games for seats {book.seats.join("–")} in Section {book.section}, Row {book.row}. Prices are per seat.
+          Prices are per seat for all {book.games.length} home games in Section {book.section}, Row {book.row}, seats {book.seats.join("–")}.
         </p>
         <FreshRow className="mt-2">
           <FreshBadge source="Comps" at={latestOf(book.games.map((g) => g.comp_checked_at))} />
