@@ -14,6 +14,7 @@ import {
   modelExplainer,
   NOT_ENOUGH_DATA,
   offersNearTip,
+  opponentTier,
   planSeason,
   projectGame,
   SALE_PRIORS,
@@ -234,7 +235,7 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(thin.suggestion).toBeNull();
 
     const tipped = projectGame(fit, query({ gameDate: "2027-01-01", daysOut: -1, snapshots: 10 }));
-    expect(tipped.sentence).toBe("This game has already tipped.");
+    expect(tipped.sentence).toBe("");
     expect(MIN_SNAPSHOTS).toBe(5);
   });
 
@@ -490,14 +491,13 @@ describe("gates, early blend, and the list suggestion", () => {
     const note = modelExplainer();
     expect(note).toMatch(/early estimate/i);
     expect(note).toMatch(/five checks/);
-    expect(note).toMatch(/pairs or bigger/);
-    expect(note).toMatch(/Singles are left out/);
+    expect(note).toMatch(/leaving out singles/);
     expect(note).toMatch(/\$6,000/);
     expect(note).toMatch(/15%/);
     expect(note).toMatch(/possible sale/i);
     expect(note).toMatch(/instant offer/i);
     expect(note).toMatch(/take the instant offer/i);
-    expect(note).toMatch(/Nothing is listed automatically/);
+    expect(note).toMatch(/nothing is listed automatically/);
     expect(note).not.toMatch(/regression|spline|logit|logistic|bayes|hierarchical|coefficient|prior|empirical/i);
   });
 
@@ -530,5 +530,19 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(offerStore).toContain("INSERT INTO instant_offers");
     expect(offerStore).not.toMatch(/UPDATE instant_offers|DELETE FROM instant_offers/i);
     expect(schema).toContain("INSTANT_OFFER_DDL");
+  });
+});
+
+describe("opponent tiers", () => {
+  it("uses the 2026-27 lists unless the game sets its own demand", () => {
+    expect(opponentTier("Houston Rockets", null)).toBe("marquee");
+    expect(opponentTier("Miami Heat", null)).toBe("marquee");
+    expect(opponentTier("Detroit Pistons", null)).toBe("standard");
+    expect(opponentTier("Milwaukee Bucks", null)).toBe("standard");
+    expect(opponentTier("Portland Trail Blazers", null)).toBe("standard");
+    expect(opponentTier("Memphis Grizzlies", null)).toBe("soft");
+    expect(opponentTier("LA  Clippers", undefined)).toBe("soft");
+    expect(opponentTier("Detroit Pistons", "bigger")).toBe("marquee");
+    expect(opponentTier("Houston Rockets", "soft")).toBe("soft");
   });
 });

@@ -244,7 +244,7 @@ export function SeatPrice({
       ) : null}
       {view.hasSaved ? (
         <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
-          {view.usingOwn && suggestion ? <>Suggested: type ${suggestion.typeIn}, keep {formatMoney(suggestion.keep)}. </> : <>Saved on this game. </>}
+          {view.usingOwn && suggestion ? <>Suggested: type ${suggestion.typeIn}, keep {formatMoney(suggestion.keep)}. </> : <>You saved a price for this game. </>}
           {reset}
         </p>
       ) : null}

@@ -113,7 +113,7 @@ function ChangeText({ value, large = false }: { value: number | null; large?: bo
 }
 
 function GameSentence({ game }: { game: TrendsGame }) {
-  return <p className="text-sm leading-snug text-[#3d4654]">{game.projection.sentence}</p>;
+  return game.projection.sentence ? <p className="text-sm leading-snug text-[#3d4654]">{game.projection.sentence}</p> : null;
 }
 
 function choiceOf(game: TrendsGame, scenario: ScenarioMap): string {
@@ -187,7 +187,7 @@ function CashPlan({ outlook }: { outlook: SeasonOutlook }) {
         </div>
       </dl>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        {outlook.kept} on Sit · {outlook.forSale} for sale · {outlook.priced} priced. Sit takes a game out of the plan.
+        {outlook.kept} on Sit · {outlook.forSale} for sale · {outlook.priced} priced · Sit takes a game out of the plan
       </p>
     </section>
   );
@@ -294,7 +294,7 @@ function SeasonTable({
                   <ChangeText value={game.changeSinceFirst} />
                 </TableCell>
                 <TableCell className="whitespace-normal text-sm font-semibold tabular-nums text-navy">
-                  {game.projection.enough ? formatMoney(game.projection.price) : "Not enough data yet."}
+                  {game.projection.enough ? formatMoney(game.projection.price) : "Not enough data"}
                   {game.projection.enough && game.projection.low != null && game.projection.high != null ? (
                     <span className="mt-0.5 block text-xs font-medium text-muted-foreground">
                       {formatMoney(game.projection.low)} – {formatMoney(game.projection.high)}
@@ -396,7 +396,7 @@ function SeasonCards({
             <div className="rounded-xl bg-[#faf8f4] px-3 py-2">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">By tip</dt>
               <dd className="text-base font-semibold tabular-nums text-navy">
-                {game.projection.enough ? formatMoney(game.projection.price) : "Not enough data yet."}
+                {game.projection.enough ? formatMoney(game.projection.price) : "Not enough data"}
                 {game.projection.early ? (
                   <span className="mt-0.5 block text-xs font-medium text-muted-foreground">Early estimate</span>
                 ) : null}
@@ -450,14 +450,11 @@ function SeasonView({ report }: { report: TrendsReport }) {
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
-            Capital One Arena · Section {report.section} Row {report.row} · seats {report.seats.join("–")}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-heading text-[24px] leading-none tracking-tight sm:text-[30px]">Price trends</h1>
           <SiteNav current="trends" />
         </div>
-        <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Price trends</h1>
-        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">Similar seats, per seat price.</p>
+        <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">Per-seat prices for seats like Section {report.section}, Row {report.row}.</p>
         <FreshRow className="mt-2">
           <FreshBadge source="Comps" at={report.lastPulledAt} />
           <FreshBadge source="Instant offers" at={report.lastOfferAt} />
@@ -594,13 +591,10 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
   return (
     <div className="mx-auto max-w-[1180px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">
-            Capital One Arena · Section {report.section} Row {report.row}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-heading text-[24px] leading-none tracking-tight sm:text-[30px]">{game.opponent}</h1>
           <SiteNav current="trends" />
         </div>
-        <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">{game.opponent}</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
           {formatGameDate(game.date, game.weekday)} {formatYear(game.date)}
           {game.timeEt ? ` · ${game.timeEt} ET` : ""}
@@ -623,7 +617,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
         {game.projection.early ? (
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Early estimate</p>
         ) : null}
-        <p className="text-lg font-medium leading-snug text-navy">{game.projection.sentence}</p>
+        {game.projection.sentence ? <p className="text-lg font-medium leading-snug text-navy">{game.projection.sentence}</p> : null}
         {suggestion ? <p className="mt-2 text-sm text-[#3d4654]">{suggestion.sentence}</p> : null}
         {note ? <p className="mt-2 text-sm text-[#3d4654]">{note}</p> : null}
         {game.sold ? null : (
@@ -649,7 +643,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
       <p className="mt-2 text-xs text-muted-foreground">
         Per seat unless noted · season: {formatMoney(outlook.expectedTotal)} expected,{" "}
         {Math.round(outlook.chance * 100)}% odds of {formatMoney(outlook.target)} · suggestions only, nothing is listed
-        automatically.
+        automatically
       </p>
 
       <section aria-labelledby="game-chart-heading" className="mt-4 rounded-2xl border border-line bg-card px-3 py-3 sm:px-4">

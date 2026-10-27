@@ -13,7 +13,7 @@
 import { PAIR_SEATS, SEASON_COST_DEFAULT, SELLER_KEEP_RATE } from "./book";
 
 export const MODEL_VERSION = "1";
-export const NOT_ENOUGH_DATA = "Not enough data yet.";
+export const NOT_ENOUGH_DATA = "There isn't enough data yet.";
 /** A game needs this many daily checks before it gets a number. */
 export const MIN_SNAPSHOTS = 5;
 /** Cleaned game×day rows before the fit stands on its own. */
@@ -129,13 +129,17 @@ export type ProbableSale = {
   supply: number | null;
 };
 
+// 2026-27 draw tiers (reviewed Oct 27, 2026). A game's own `demand` field wins
+// when set. Moves this season: Giannis went to Miami (Heat up, Bucks down), Durant
+// is in Houston, Detroit won 60, Portland added Morant to Lillard, and Dallas no
+// longer has Luka. Memphis, the Clippers and Sacramento start in the bottom three.
 const MARQUEE = new Set([
   "boston celtics",
-  "dallas mavericks",
   "denver nuggets",
   "golden state warriors",
+  "houston rockets",
   "los angeles lakers",
-  "milwaukee bucks",
+  "miami heat",
   "new york knicks",
   "oklahoma city thunder",
   "philadelphia 76ers",
@@ -145,8 +149,9 @@ const MARQUEE = new Set([
 const SOFT = new Set([
   "brooklyn nets",
   "charlotte hornets",
-  "detroit pistons",
-  "portland trail blazers",
+  "la clippers",
+  "memphis grizzlies",
+  "sacramento kings",
   "utah jazz",
 ]);
 
@@ -332,15 +337,15 @@ export function trustBlend(rows: number, observedGames: number): { early: boolea
 
 export function modelExplainer(): string {
   return [
-    "It reads similar-seat prices for every home game: sections 107, 108, 118 and 119, rows J–T, pairs or bigger. Singles are left out.",
+    "It reads similar-seat prices for every home game, leaving out singles.",
     "It learns how prices move as tip nears, then lets a hot or cold game run above or below that path.",
     "Opponent, weekend tips, national TV, seats for sale and the Wizards' record nudge the number.",
     "Until there's most of a season of checks, it leans on the latest middle and says Early estimate. Under five checks, it waits.",
     "The goal is $6,000 after fees plus 15%. Each ask is the price that adds the most expected cash after the 5% fee. Sit games are left out.",
-    "Goal at risk: asks lean toward selling. Goal safe: they hold out.",
+    "When the goal is at risk, asks lean toward selling; when it looks safe, they hold out.",
     "A pair that vanishes well before tip counts as a possible sale.",
     "A saved instant offer sets a floor. Within a week of tip, if a listing likely clears less, it says take the instant offer.",
-    "Suggestions only. Nothing is listed automatically.",
+    "These are suggestions only, and nothing is listed automatically.",
   ].join(" ");
 }
 
@@ -419,8 +424,9 @@ export function fitMarketModel(
 }
 
 export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
-  if (!fit.ok) return notEnough(game.daysOut < 0 ? "This game has already tipped." : NOT_ENOUGH_DATA);
-  if (game.daysOut < 0) return notEnough("This game has already tipped.");
+  // A tipped game already shows "Tip was N days ago", so it gets no sentence.
+  if (game.daysOut < 0) return notEnough("");
+  if (!fit.ok) return notEnough();
   if (game.snapshots < MIN_SNAPSHOTS) return notEnough();
 
   const todayRaw = predictPrice(fit, game, game.daysOut);
@@ -438,7 +444,7 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
   });
 
   const sentence =
-    `Similar seats: about ${dollars(today.price)} today, ${dollars(tip.price)} by tip. ` +
+    `Similar seats are about ${dollars(today.price)} today and should be about ${dollars(tip.price)} by tip. ` +
     `4 times in 5, game day lands between ${dollars(tip.low)} and ${dollars(tip.high)}.`;
 
   return {
@@ -591,7 +597,7 @@ export function sitSuggestion(sentence: string): ListSuggestion {
 
 export function soldSuggestion(banked: number): ListSuggestion {
   const cash = banked > 0 ? ` for ${dollars(banked)} after fees` : "";
-  return holdSuggestion(`Sold${cash}.`);
+  return holdSuggestion(`These seats sold${cash}.`);
 }
 
 const SAFER_BELOW = 0.4;
@@ -1301,7 +1307,7 @@ function outlookSentence(outlook: SeasonOutlook): string {
       : outlook.lean === "patient"
         ? "Goal looks safe, so asks hold out a little."
         : "Asks go for the most expected cash.";
-  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all.${missing} About a ${Math.round(outlook.chance * 100)}% chance of clearing it. ${lean}`;
+  return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all, with about a ${Math.round(outlook.chance * 100)}% chance of clearing the goal.${missing} ${lean}`;
 }
 
 function sampleFromSale(sale: ProbableSale, certain: boolean): SaleSample | null {

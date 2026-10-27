@@ -198,13 +198,12 @@ export function GridPage() {
   return (
     <div className="mx-auto max-w-[1400px] px-3 pb-16 pt-4 sm:px-4 sm:pt-5">
       <header className="rounded-2xl bg-navy px-4 py-3 text-navy-foreground sm:px-5 sm:py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="m-0 text-[13px] font-medium leading-snug text-[#f3e6c8]">Per seat · newest day first</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-heading text-[24px] leading-none tracking-tight sm:text-[30px]">Price grid</h1>
           <SiteNav current="grid" admin />
         </div>
-        <h1 className="font-heading mt-0.5 text-[24px] leading-none tracking-tight sm:text-[30px]">Price grid</h1>
         <p className="mt-1.5 text-sm leading-snug text-[#e4eaf3]">
-          {grid.games.length} games · {grid.days.length} days · type-in prices
+          Per-seat type-in prices for {grid.games.length} games over {grid.days.length} days, newest day first.
         </p>
       </header>
 
