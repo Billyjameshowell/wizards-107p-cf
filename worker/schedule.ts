@@ -1,6 +1,7 @@
 import { runIngest } from "./ingest";
 import { refitPriceModel } from "./model-fit";
 import { refreshPriceGrid } from "./grid";
+import { persistSuggestedAsks } from "./suggested-asks";
 import { syncSalesFromBook } from "./sales";
 import { refreshTrends } from "./trends";
 
@@ -39,9 +40,15 @@ export async function runStep(step: Step, env: Env, trigger: "cron" | "http", no
         return summary;
       }
       case "refit":
-        // Model fit, today's suggested-ask snapshot, likely sales.
+        // Model fit and likely sales.
         return await refitPriceModel(env, trigger, now);
       case "grid":
+        // Today's suggested-ask snapshot, then the grid built from it.
+        try {
+          await persistSuggestedAsks(env, now, { fillToday: true });
+        } catch (error) {
+          console.error("suggested asks", error);
+        }
         return await refreshPriceGrid(env, now);
       case "trends":
         await refreshTrends(env, now);

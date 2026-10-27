@@ -770,7 +770,19 @@ function loggedFloor(
   return { total: offer.total, perTicket: offer.perTicket, seen: offer.observedAt.slice(0, 10), seenAt: offer.observedAt };
 }
 
-function compSnaps(pulls: readonly TrendPull[], listings: readonly TrendListing[]): CompSnap[] {
+// One refit asks for the same snaps three times (fit, snapshot, likely sales). They are a
+// pure function of the two arrays, so keep the last result per listings array.
+const snapCache = new WeakMap<readonly TrendListing[], { pulls: readonly TrendPull[]; snaps: readonly CompSnap[] }>();
+
+function compSnaps(pulls: readonly TrendPull[], listings: readonly TrendListing[]): readonly CompSnap[] {
+  const cached = snapCache.get(listings);
+  if (cached?.pulls === pulls) return cached.snaps;
+  const snaps = buildCompSnaps(pulls, listings);
+  snapCache.set(listings, { pulls, snaps });
+  return snaps;
+}
+
+function buildCompSnaps(pulls: readonly TrendPull[], listings: readonly TrendListing[]): CompSnap[] {
   const pullById = new Map(pulls.map((pull) => [pull.id, pull]));
   const byPull = new Map<number, TrendListing[]>();
   for (const row of listings) {

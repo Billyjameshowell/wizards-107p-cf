@@ -15,7 +15,6 @@ import {
 import { proxySales } from "../src/shared/trends";
 import { ensureArchive } from "./archive-store";
 import { insertProbableSales } from "./likely-sales";
-import { persistSuggestedAsks } from "./suggested-asks";
 import { loadMarketInputs, type MarketInputs } from "./trends";
 
 const INSERT_FIT = `INSERT INTO price_model_fits (
@@ -23,7 +22,7 @@ const INSERT_FIT = `INSERT INTO price_model_fits (
   early, blend, sigma_resid, sigma_game, holdout_median_ape, params_json
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-/** The refit step: model fit, today's suggested-ask snapshot, likely sales. Reads the archive once. */
+/** The refit step: model fit and likely sales. Reads the archive once. The grid step writes the ask snapshot. */
 export async function refitPriceModel(env: Env, trigger: string, now = new Date()): Promise<void> {
   await ensureArchive(env);
   const inputs = await loadMarketInputs(env);
@@ -31,12 +30,6 @@ export async function refitPriceModel(env: Env, trigger: string, now = new Date(
     await insertModelFit(env, fitFromInputs(inputs, trigger, now));
   } catch (error) {
     console.error("price model fit", error);
-  }
-  try {
-    // Today's snapshot (and the one-time backfill). The grid step rebuilds the grid from it.
-    await persistSuggestedAsks(env, now, { fillToday: true, inputs });
-  } catch (error) {
-    console.error("suggested asks", error);
   }
   try {
     await insertProbableSales(env, proxySales(inputs.pulls, inputs.listings), now);

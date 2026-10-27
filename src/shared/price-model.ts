@@ -700,6 +700,17 @@ export function clearChance(banked: number, target: number, outcomes: readonly {
  * same price are a price edit. Near-tip disappearances are left out.
  */
 export function detectLikelySales(snaps: readonly CompSnap[]): ProbableSale[] {
+  const cached = likelySalesCache.get(snaps);
+  if (cached) return [...cached];
+  const found = findLikelySales(snaps);
+  likelySalesCache.set(snaps, found);
+  return [...found];
+}
+
+// Pure in `snaps`; the fit, the snapshot and likely sales all ask for the same array.
+const likelySalesCache = new WeakMap<readonly CompSnap[], ProbableSale[]>();
+
+function findLikelySales(snaps: readonly CompSnap[]): ProbableSale[] {
   const byGame = new Map<string, CompSnap[]>();
   for (const snap of snaps) {
     if (snap.quantity < PAIR_SEATS) continue;
@@ -720,18 +731,32 @@ export function detectLikelySales(snaps: readonly CompSnap[]): ProbableSale[] {
       pulls.set(id, list);
     }
     const ordered = [...pulls.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    // Seat group -> [check index, price], so "do these seats come back later" reads one
+    // group instead of every later listing (that scan was quadratic in checks per game).
+    const bySeats = new Map<string, [number, number][]>();
+    ordered.forEach(([, snaps], at) => {
+      for (const snap of snaps) {
+        const list = bySeats.get(seatsKey(snap)) ?? [];
+        list.push([at, snap.price]);
+        bySeats.set(seatsKey(snap), list);
+      }
+    });
     for (let index = 0; index < ordered.length - 1; index += 1) {
       const earlier = ordered[index]?.[1] ?? [];
       const later = ordered[index + 1]?.[1] ?? [];
       const laterDays = later[0]?.daysOut ?? 0;
       if (laterDays <= LIKELY_SOLD_MIN_DAYS) continue;
       const laterCounts = countSnapKeys(later);
-      const future = ordered.slice(index + 1).flatMap((entry) => entry[1]);
+      const firstByKey = new Map<string, CompSnap>();
+      for (const snap of earlier) {
+        const key = snapKey(snap);
+        if (!firstByKey.has(key)) firstByKey.set(key, snap);
+      }
       for (const [key, count] of countSnapKeys(earlier)) {
         const gone = count - (laterCounts.get(key) ?? 0);
         if (gone <= 0) continue;
-        const sample = earlier.find((snap) => snapKey(snap) === key);
-        if (!sample || sameSeatsReturn(sample, future)) continue;
+        const sample = firstByKey.get(key);
+        if (!sample || seatsSeenAfter(sample, bySeats, index)) continue;
         const goneDate = later[0]?.etDate ?? sample.etDate;
         for (let copy = 0; copy < gone; copy += 1) {
           found.push({
@@ -784,14 +809,15 @@ export function saleSamples(snaps: readonly CompSnap[], certain: readonly Probab
     }
     const ordered = [...pulls.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     const seen = new Set<string>();
+    // Prices of each seat group in the checks before this one, grown as we go.
+    const earlierBySeats = new Map<string, number[]>();
     for (let index = 0; index < ordered.length; index += 1) {
       const current = ordered[index]?.[1] ?? [];
       const daysOut = current[0]?.daysOut ?? 99;
-      if (daysOut < 0 || daysOut > LIKELY_SOLD_MIN_DAYS) continue;
-      const earlier = ordered.slice(0, index).flatMap((entry) => entry[1]);
-      for (const snap of current) {
+      const nearTip = !(daysOut < 0 || daysOut > LIKELY_SOLD_MIN_DAYS);
+      for (const snap of nearTip ? current : []) {
         if (snap.median == null || snap.median <= 0) continue;
-        if (!earlier.some((past) => sameSeats(snap, past))) continue;
+        if (!(earlierBySeats.get(seatsKey(snap)) ?? []).some((price) => samePrice(snap.price, price))) continue;
         const id = `${snap.gameDate}|${snap.section}|${snap.row}|${snap.quantity}|${Math.round(snap.price * 100)}`;
         if (seen.has(id)) continue;
         seen.add(id);
@@ -803,6 +829,11 @@ export function saleSamples(snaps: readonly CompSnap[], certain: readonly Probab
           daysOut: snap.daysOut,
           supply: snap.supply ?? 0,
         });
+      }
+      for (const snap of current) {
+        const list = earlierBySeats.get(seatsKey(snap)) ?? [];
+        list.push(snap.price);
+        earlierBySeats.set(seatsKey(snap), list);
       }
     }
   }
@@ -1342,14 +1373,20 @@ function countSnapKeys(snaps: readonly CompSnap[]): Map<string, number> {
   return counts;
 }
 
-function sameSeats(left: CompSnap, right: CompSnap): boolean {
-  if (left.section !== right.section || left.row !== right.row || left.quantity !== right.quantity) return false;
-  if (left.price <= 0) return false;
-  return Math.abs(right.price - left.price) / left.price <= PRICE_EDIT_BAND;
+/** Same section, row and quantity. */
+function seatsKey(snap: CompSnap): string {
+  return `${snap.section}|${snap.row}|${snap.quantity}`;
 }
 
-function sameSeatsReturn(sample: CompSnap, future: readonly CompSnap[]): boolean {
-  return future.some((snap) => sameSeats(sample, snap));
+/** Within the price-edit band of the first price. */
+function samePrice(price: number, other: number): boolean {
+  if (price <= 0) return false;
+  return Math.abs(other - price) / price <= PRICE_EDIT_BAND;
+}
+
+/** The same seats at nearly the same price in any check after `index`. */
+function seatsSeenAfter(sample: CompSnap, bySeats: ReadonlyMap<string, [number, number][]>, index: number): boolean {
+  return (bySeats.get(seatsKey(sample)) ?? []).some(([at, price]) => at > index && samePrice(sample.price, price));
 }
 
 function round2(value: number): number {

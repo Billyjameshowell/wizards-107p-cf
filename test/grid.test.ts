@@ -578,8 +578,8 @@ describe("GET /api/grid", () => {
     const index = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
     const grid = readFileSync(new URL("../worker/grid.ts", import.meta.url), "utf8");
     expect(index).toContain("runStep");
-    for (const step of ["runIngest", "refitPriceModel", "refreshPriceGrid", "refreshTrends"]) expect(schedule).toContain(step);
-    expect(fit).toContain("persistSuggestedAsks");
+    for (const step of ["runIngest", "refitPriceModel", "persistSuggestedAsks", "refreshPriceGrid", "refreshTrends"]) expect(schedule).toContain(step);
+    expect(fit).not.toContain("persistSuggestedAsks");
     expect(asks).not.toContain("refreshPriceGrid");
     expect(functionBody(grid, "gridResponse")).not.toContain("persistSuggestedAsks");
     expect(functionBody(grid, "gridResponse")).not.toContain("ensureArchiveBackfill");

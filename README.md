@@ -86,7 +86,7 @@ npm run deploy
 
 7. Open the `*.workers.dev` URL. The book UI loads from `/api/book`. The first request also backfills the price archive (legacy rows, any existing `price_history` rows, and zone comps still sitting on the book). That backfill does not call SeatData or Apify.
 
-The daily job is four cron steps, one per invocation so each stays inside the Workers CPU and per-invocation limits (`worker/schedule.ts`): `0 12 * * *` ingest (comps pull, archive, price history, book), `10 12` refit (model fit, suggested asks, likely sales), `20 12` grid, `30 12` trends, all UTC (~8am America/New_York). The cron's minute picks the step. HTTP `/api/cron?step=ingest|refit|grid|trends` runs one step (default ingest) and **requires** `Authorization: Bearer <CRON_SECRET>`.
+The daily job is four cron steps, one per invocation so each stays inside the Workers CPU and per-invocation limits (`worker/schedule.ts`): `0 12 * * *` ingest (comps pull, archive, price history, book), `10 12` refit (model fit, likely sales), `20 12` grid (suggested-ask snapshot, then the grid), `30 12` trends, all UTC (~8am America/New_York). The cron's minute picks the step. HTTP `/api/cron?step=ingest|refit|grid|trends` runs one step (default ingest) and **requires** `Authorization: Bearer <CRON_SECRET>`.
 
 ## Secrets and flags
 
