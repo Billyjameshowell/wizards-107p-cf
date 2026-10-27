@@ -149,7 +149,7 @@ function suggestionFor(game: TrendsGame, outlook: SeasonOutlook, scenario: Scena
   }
   const chosen = outlook.asks[game.date];
   if (!chosen) return null;
-  return suggestionFromOffer(chosen, outlook.lean);
+  return suggestionFromOffer(chosen);
 }
 
 function keepingNote(report: TrendsReport, game: TrendsGame, scenario: ScenarioMap, outlook: SeasonOutlook): string | null {
@@ -608,7 +608,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
 
       <p className="mt-2">
         <a href="/trends" className="inline-flex min-h-11 items-center text-sm font-semibold text-navy underline underline-offset-2">
-          ← All games
+          ← Price trends
         </a>
       </p>
 
@@ -771,7 +771,7 @@ export function TrendsPage() {
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <h1 className="font-heading text-2xl text-navy">That game is not on this book</h1>
         <a href="/trends" className="mt-4 inline-flex min-h-11 items-center font-semibold text-navy underline">
-          All games
+          Price trends
         </a>
       </div>
     );
