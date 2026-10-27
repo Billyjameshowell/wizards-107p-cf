@@ -2,6 +2,14 @@ import { authorizeBearer } from "../src/shared/guardrails";
 import { etYmd } from "../src/shared/pricing";
 import { loadLiveBook } from "./store";
 
+/** A lookup that may fail without blocking the sale record; the failure is still logged. */
+function logged(what: string) {
+  return (error: unknown): null => {
+    console.error(what, error);
+    return null;
+  };
+}
+
 const DDL = `CREATE TABLE IF NOT EXISTS sale_outcomes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, external_id TEXT NOT NULL UNIQUE, game_date TEXT NOT NULL, event_id TEXT,
   sold_at TEXT NOT NULL, seats_sold INTEGER, sold_price_per_seat REAL, payout_per_seat REAL, payout_total REAL,
@@ -40,10 +48,10 @@ export async function recordSale(env: Env, input: SaleInput): Promise<boolean> {
   const ask = await env.DB.prepare(
     // Newest ask for an ET day on or before the sale day (recomputed rows were saved later but fit only that day's comps).
     `SELECT ask FROM suggested_asks WHERE game_date = ? AND et_date <= ? ORDER BY et_date DESC, id DESC LIMIT 1`,
-  ).bind(input.game_date, etYmd(soldAt)).first<{ ask: number }>().catch(() => null);
+  ).bind(input.game_date, etYmd(soldAt)).first<{ ask: number }>().catch(logged("sale: model ask lookup"));
   const tm = await env.DB.prepare(
     `SELECT suggested, event_id FROM tm_portal WHERE game_date = ? AND read_at <= ? AND suggested IS NOT NULL ORDER BY read_at DESC, id DESC LIMIT 1`,
-  ).bind(input.game_date, iso).first<{ suggested: number; event_id: string | null }>().catch(() => null);
+  ).bind(input.game_date, iso).first<{ suggested: number; event_id: string | null }>().catch(logged("sale: TM suggestion lookup"));
   const days = Math.round((Date.parse(`${input.game_date}T00:00:00Z`) - Date.parse(`${etYmd(soldAt)}T00:00:00Z`)) / 86400000);
   const seats = num(input.seats_sold);
   const perSeatPayout = num(input.payout_per_seat) ?? (num(input.payout_total) != null && seats ? num(input.payout_total)! / seats : null);

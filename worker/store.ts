@@ -40,7 +40,9 @@ async function readStore(env: Env, key: string): Promise<string | null> {
       .bind(key)
       .first<{ value: string }>();
     return row?.value ?? null;
-  } catch {
+  } catch (error) {
+    // A D1 failure would otherwise look like an empty book.
+    console.error("store read", key, error);
     return null;
   }
 }
@@ -66,7 +68,8 @@ export async function readBook(env: Env): Promise<Book | null> {
   if (!raw) return null;
   try {
     return JSON.parse(raw) as Book;
-  } catch {
+  } catch (error) {
+    console.error("book JSON is corrupt", error);
     return null;
   }
 }
