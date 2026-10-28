@@ -53,12 +53,12 @@ function wholeDollars(value: number): string {
   return money(Math.round(value));
 }
 
-/** "$6,255 over the $6,000 season cost", in whole-or-cent dollars. */
-function shortfall(vs: number, cost: number): string {
-  const target = `the ${money(cost)} season cost`;
-  if (vs < 0) return `${money(Math.abs(vs))} short of ${target}`;
-  if (vs > 0) return `${money(vs)} over ${target}`;
-  return `even with ${target}`;
+/** How the all-sell plan sits against the season cost, said once. */
+function planLine(sellCash: number, vs: number): string {
+  const plan = `About ${money(Math.round(sellCash))} if every Sell game sells`;
+  if (vs > 0) return `${plan}, which covers it with ${money(vs)} to spare.`;
+  if (vs < 0) return `${plan}, which leaves you ${money(Math.abs(vs))} short.`;
+  return `${plan}, which covers it exactly.`;
 }
 
 type Row = { game: Game; status: ListingOverride; view: SeatPriceView };
@@ -355,7 +355,7 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
         <Progress value={progress} aria-label="Cash in toward the season cost" className="h-2" />
         {summary.sellCash > 0 ? (
           <p className="text-sm text-muted-foreground">
-            About {wholeDollars(summary.sellCash)} if every Sell game sells, {shortfall(summary.vsSeason, book.season_cost)}.
+            {planLine(summary.sellCash, summary.vsSeason)}
           </p>
         ) : null}
       </Card>
