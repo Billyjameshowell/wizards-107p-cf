@@ -134,7 +134,7 @@ export function PriceTrendChart({
 
   if (points.length === 0) {
     return (
-      <div ref={ref} className="rounded-xl border border-dashed border-line bg-[#faf8f4] px-4 py-8 text-center text-sm text-muted-foreground">
+      <div ref={ref} className="rounded-xl border border-dashed bg-muted/40 px-4 py-8 text-center text-sm text-muted-foreground">
         No similar-seat prices yet for this game.
       </div>
     );
@@ -273,7 +273,7 @@ export function PriceTrendChart({
           </text>
         </svg>
       </div>
-      <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-[#3d4654]">
+      <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <LegendSwatch stroke={NAVY} /> Median of similar seats
         </span>
@@ -309,25 +309,6 @@ export function PriceTrendChart({
           <LegendSwatch stroke={TIP} /> Tip
         </span>
       </figcaption>
-      <table className="sr-only">
-        <caption>{title}</caption>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Median of similar seats</th>
-            <th>Cheapest similar seat</th>
-          </tr>
-        </thead>
-        <tbody>
-          {points.map((point) => (
-            <tr key={point.date}>
-              <td>{point.date}</td>
-              <td>{formatMoney(point.median)}</td>
-              <td>{formatMoney(point.cheapest)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </figure>
   );
 }
@@ -349,7 +330,7 @@ export function DaysOutChart({
 
   if (dots.length === 0) {
     return (
-      <div ref={ref} className="rounded-xl border border-dashed border-line bg-[#faf8f4] px-4 py-8 text-center text-sm text-muted-foreground">
+      <div ref={ref} className="rounded-xl border border-dashed bg-muted/40 px-4 py-8 text-center text-sm text-muted-foreground">
         Not enough price checks yet to see how seats move as tip gets closer.
       </div>
     );
@@ -437,10 +418,6 @@ export function DaysOutChart({
           ))}
         </svg>
       </div>
-      <figcaption className="mt-2 text-sm leading-relaxed text-[#3d4654]">
-        Each game starts at 100% of the first median we saw for it. Dots are later checks. The line is the middle of
-        those checks at that many days before tip.
-      </figcaption>
     </figure>
   );
 }
