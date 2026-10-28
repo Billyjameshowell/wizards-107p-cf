@@ -1,4 +1,6 @@
 /** How fresh a data source is, plus the shared "3h ago" / "11 days ago" label. */
+import type { SourceId } from "./guardrails";
+
 export type FreshTone = "fresh" | "aging" | "stale";
 
 export const FRESH_HOURS = 24;
@@ -76,8 +78,6 @@ export type FreshnessReport = {
   games: FreshnessGameRow[];
 };
 
-const TRACKED_SOURCES = ["seatdata", "apify"] as const;
-
 function roundAge(hours: number | null): number | null {
   if (hours == null) return null;
   return Math.round(hours * 10) / 10;
@@ -95,16 +95,17 @@ function checkedFields(
   };
 }
 
-/** Public freshness payload. Sources always include seatdata and apify. */
+/** Public freshness payload for the price sources the worker is set to pull. */
 export function buildFreshnessReport(args: {
   now: Date;
+  sources: readonly SourceId[];
   games: readonly { date: string; opponent: string; comp_checked_at?: string | null }[];
   sourceCheckedAt?: Readonly<Record<string, string | null | undefined>>;
 }): FreshnessReport {
   return {
     asof: args.now.toISOString(),
     staleAfterHours: AGING_HOURS,
-    sources: TRACKED_SOURCES.map((source) => ({
+    sources: args.sources.map((source) => ({
       source,
       ...checkedFields(args.sourceCheckedAt?.[source], args.now),
     })),

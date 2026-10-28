@@ -1,4 +1,5 @@
 import { buildFreshnessReport, type FreshnessReport } from "../src/shared/freshness";
+import { parseFlags, type SourceId } from "../src/shared/guardrails";
 import { ensureArchive } from "./archive-store";
 import { readBook, SEED_BOOK } from "./store";
 
@@ -7,10 +8,9 @@ const HEADERS = {
 };
 
 const SOURCES_KEY = "freshness:sources:v1";
-const TRACKED = ["seatdata", "apify"] as const;
 
-async function sourceCheckedAt(env: Env): Promise<Record<string, string | null>> {
-  const out: Record<string, string | null> = { seatdata: null, apify: null };
+async function sourceCheckedAt(env: Env, sources: readonly SourceId[]): Promise<Record<string, string | null>> {
+  const out: Record<string, string | null> = Object.fromEntries(sources.map((source) => [source, null]));
   try {
     const cached = await env.BOOK.get(SOURCES_KEY);
     if (cached) return JSON.parse(cached) as Record<string, string | null>;
@@ -21,12 +21,11 @@ async function sourceCheckedAt(env: Env): Promise<Record<string, string | null>>
     await ensureArchive(env);
     const rows = await env.DB.prepare(
       `SELECT source, MAX(pulled_at) AS pulled_at FROM price_pulls
-       WHERE source IN ('seatdata', 'apify')
-         AND trigger_name IN ('cron', 'http')
+       WHERE trigger_name IN ('cron', 'http')
        GROUP BY source`,
     ).all<{ source: string; pulled_at: string | null }>();
     for (const row of rows.results ?? []) {
-      if ((TRACKED as readonly string[]).includes(row.source)) out[row.source] = row.pulled_at;
+      if (row.source in out) out[row.source] = row.pulled_at;
     }
     // Short TTL: a new pull shows within 10 minutes.
     await env.BOOK.put(SOURCES_KEY, JSON.stringify(out), { expirationTtl: 600 });
@@ -50,10 +49,12 @@ export async function freshnessResponse(env: Env, request: Request, now = new Da
   } catch (error) {
     console.error("freshness book", error);
   }
+  const sources = parseFlags(env).sources;
   const report: FreshnessReport = buildFreshnessReport({
     now,
     games,
-    sourceCheckedAt: await sourceCheckedAt(env),
+    sources,
+    sourceCheckedAt: await sourceCheckedAt(env, sources),
   });
   return Response.json(report, { headers: HEADERS });
 }

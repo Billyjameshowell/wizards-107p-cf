@@ -799,8 +799,8 @@ export function TicketBook({
             $46.55, or $93.10 for the pair. Buyers pay more than you type. Sit or Sell only changes this book.
           </p>
           <p>
-            The middle is similar lower-bowl seats: 107, 108, 118 and 119, rows J–T, without a lone cheap 107P
-            listing. It is shown for context. Your own number can be anything and stays put.
+            The middle is the going price for similar lower-bowl seats in sections 107, 108, 118 and 119, rows J–T,
+            leaving out a lone cheap 107P listing. Your own number can be anything, and it stays put.
           </p>
           <p>
             The suggested price is the price model&apos;s ask, the same one the Trends page and the grid show: the
