@@ -15,8 +15,6 @@ import { formatChance } from "./format";
 
 export const MODEL_VERSION = "1";
 export const NOT_ENOUGH_DATA = "There isn't enough data yet.";
-/** A game needs this many daily checks before it gets a number. */
-export const MIN_SNAPSHOTS = 5;
 /** Cleaned game×day rows before the fit stands on its own. */
 export const TRUST_ROWS = 800;
 /** About half of a 43-game home slate. */
@@ -215,7 +213,7 @@ export type GameQuery = {
   nationalTv: boolean;
   winRate: number | null;
   supply: number | null;
-  snapshots: number;
+  /** Latest middle of similar seats. Today's price is anchored here when there is one. */
   liveMedian: number | null;
   /** Guaranteed per-seat payout, when one is logged. */
   instantPerTicket?: number | null;
@@ -340,6 +338,12 @@ export function knotsFromRows(rows: readonly MarketRow[]): number[] {
   return knots;
 }
 
+/**
+ * How far the archive is toward the trust bar (most of a season of checks, or
+ * about half the games played). Below 1 the projection says Early estimate. It no
+ * longer weights the live middle against the model: today is always anchored to
+ * the live middle (see projectGame).
+ */
 export function trustBlend(rows: number, observedGames: number): { early: boolean; blend: number } {
   const progress = Math.max(rows / TRUST_ROWS, observedGames / TRUST_OBSERVED_GAMES);
   const blend = Math.min(1, Math.max(0, progress));
@@ -349,9 +353,9 @@ export function trustBlend(rows: number, observedGames: number): { early: boolea
 export function modelExplainer(): string {
   return [
     "It reads similar-seat prices for every home game, leaving out singles.",
-    "It learns how prices move as tip nears, then lets a hot or cold game run above or below that path.",
-    "Opponent, weekend tips, national TV and seats for sale nudge the number.",
-    "Until there's most of a season of checks, it leans on the latest middle and says Early estimate. Under five checks, it waits.",
+    "Today's price is the latest middle of similar seats. It learns how each game's price moves as tip nears and carries today's price along that path.",
+    "A game with no listings yet gets a price from similar games: opponent, weekend tips and national TV.",
+    "Until there's most of a season of checks, the path to tip is an Early estimate.",
     "The goal is $6,000 after fees plus 15%. Each ask is the price that adds the most expected cash after the 5% fee. Sit games are left out.",
     "When the goal is at risk, asks lean toward selling; when it looks safe, they hold out.",
     "A pair that vanishes well before tip counts as a possible sale.",
@@ -382,7 +386,8 @@ export function fitMarketModel(
   const ctx = imputeContext(clean);
   const knots = options?.knots ? [...options.knots] : knotsFromRows(clean);
   const built = design(clean, ctx, knots);
-  if (!built) {
+  const solved = built ? solveTwoStage(built) : null;
+  if (!built || !solved) {
     return {
       ok: false,
       version: MODEL_VERSION,
@@ -393,20 +398,6 @@ export function fitMarketModel(
     };
   }
 
-  const solved = ols(built.matrix, built.y);
-  if (!solved) {
-    return {
-      ok: false,
-      version: MODEL_VERSION,
-      rows: clean.length,
-      games: games.size,
-      observedGames,
-      reason: "could not fit",
-    };
-  }
-
-  const residuals = built.y.map((value, index) => value - dot(built.matrix[index] ?? [], solved.beta));
-  const shrunk = shrinkGames(built.gameDates, residuals, solved.beta.length);
   const logs = built.y;
   const { early, blend } = trustBlend(clean.length, observedGames);
 
@@ -417,10 +408,10 @@ export function fitMarketModel(
     terms: built.terms,
     beta: solved.beta,
     xtxInv: solved.xtxInv,
-    sigma: shrunk.sigma,
-    sigmaGame: shrunk.sigmaGame,
-    intercepts: shrunk.intercepts,
-    counts: shrunk.counts,
+    sigma: solved.sigma,
+    sigmaGame: solved.sigmaGame,
+    intercepts: solved.intercepts,
+    counts: solved.counts,
     supplyMean: ctx.supplyMean,
     winRateMean: ctx.winRateMean,
     instantMean: ctx.instantMean,
@@ -434,18 +425,25 @@ export function fitMarketModel(
   };
 }
 
+/**
+ * Today's price is what similar seats list for now (the latest comp middle).
+ * The fit only moves that price to tip along the shared days-out path, so a game
+ * listed at $740 today is not pulled toward a model level fitted on other games.
+ * A game with no listings at all gets the fit's price from similar games.
+ */
 export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
   // A tipped game already shows "Tip was N days ago", so it gets no sentence.
   if (game.daysOut < 0) return notEnough("");
   if (!fit.ok) return notEnough();
-  if (game.snapshots < MIN_SNAPSHOTS) return notEnough();
 
-  const todayRaw = predictPrice(fit, game, game.daysOut);
-  const tipRaw = predictPrice(fit, game, 0);
-  if (!todayRaw || !tipRaw) return notEnough();
+  const todayModel = predictPrice(fit, game, game.daysOut);
+  const tipModel = predictPrice(fit, game, 0);
+  if (!todayModel || !tipModel) return notEnough();
+  const live = game.liveMedian != null && Number.isFinite(game.liveMedian) && game.liveMedian > 0 ? game.liveMedian : null;
+  const shift = live == null ? 1 : live / todayModel.price;
 
-  const today = bandAround(anchorToInstant(blendTowardLive(todayRaw, game.liveMedian, fit.blend), game.instantPerTicket));
-  const tip = bandAround(anchorToInstant(blendTowardLive(tipRaw, game.liveMedian, fit.blend), game.instantPerTicket));
+  const today = bandAround(anchorToInstant(scaleBand(todayModel, shift), game.instantPerTicket));
+  const tip = bandAround(anchorToInstant(scaleBand(tipModel, shift), game.instantPerTicket));
   const suggestion = suggestListPrice({
     predictedMedian: today.price,
     daysOut: game.daysOut,
@@ -453,8 +451,12 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
     instantTotal: game.instantPerTicket != null && game.instantPerTicket > 0 ? game.instantPerTicket * PAIR_SEATS : null,
   });
 
+  const lead =
+    live == null
+      ? `No similar seats are listed for this game yet. Similar games put it at about ${dollars(today.price)} today`
+      : `Similar seats are about ${dollars(today.price)} today`;
   const sentence =
-    `Similar seats are about ${dollars(today.price)} today and should be about ${dollars(tip.price)} by tip. ` +
+    `${lead} and about ${dollars(tip.price)} by tip. ` +
     `4 times in 5, game day lands between ${dollars(tip.low)} and ${dollars(tip.high)}.`;
 
   return {
@@ -973,7 +975,6 @@ function rowToQuery(row: MarketRow): GameQuery {
     nationalTv: row.nationalTv,
     winRate: row.winRate,
     supply: row.supply,
-    snapshots: MIN_SNAPSHOTS,
     liveMedian: row.median,
     instantPerTicket: row.instantPerTicket ?? null,
   };
@@ -1016,11 +1017,18 @@ function imputeContext(rows: readonly MarketRow[]): FitContext {
   };
 }
 
-function design(
-  rows: readonly MarketRow[],
-  ctx: FitContext,
-  knots: readonly number[],
-): { matrix: number[][]; y: number[]; terms: TermName[]; gameDates: string[] } | null {
+type Design = {
+  matrix: number[][];
+  y: number[];
+  terms: TermName[];
+  gameDates: string[];
+  /** Columns (into terms) that move within a game: the days-out path, supply. */
+  within: number[];
+  /** Columns fixed for a game: intercept, opponent tier, weekend, TV, ... */
+  level: number[];
+};
+
+function design(rows: readonly MarketRow[], ctx: FitContext, knots: readonly number[]): Design | null {
   const full: number[][] = [];
   const y: number[] = [];
   const gameDates: string[] = [];
@@ -1029,14 +1037,125 @@ function design(
     y.push(Math.log(row.median));
     gameDates.push(row.gameDate);
   }
+  const groups = groupIndexes(gameDates);
+  const terms: TermName[] = [];
+  const within: number[] = [];
+  const level: number[] = [];
   const keep: number[] = [];
   for (let column = 0; column < TERM_NAMES.length; column += 1) {
-    if (column === 0 || columnSd(full.map((row) => row[column] ?? 0)) >= 1e-8) keep.push(column);
+    const values = full.map((row) => row[column] ?? 0);
+    const moves = column !== 0 && [...groups.values()].some((rowsOf) => columnSd(rowsOf.map((index) => values[index] ?? 0)) >= 1e-8);
+    if (column !== 0 && !moves && columnSd(values) < 1e-8) continue;
+    (moves ? within : level).push(keep.length);
+    keep.push(column);
+    terms.push(TERM_NAMES[column] as TermName);
   }
-  if (keep.length < 2) return null;
+  if (within.length === 0) return null;
   const matrix = full.map((row) => keep.map((column) => row[column] ?? 0));
-  const terms = keep.map((column) => TERM_NAMES[column] as TermName);
-  return { matrix, y, terms, gameDates };
+  return { matrix, y, terms, gameDates, within, level };
+}
+
+function groupIndexes(keys: readonly string[]): Map<string, number[]> {
+  const groups = new Map<string, number[]>();
+  keys.forEach((key, index) => {
+    const list = groups.get(key) ?? [];
+    list.push(index);
+    groups.set(key, list);
+  });
+  return groups;
+}
+
+type TwoStage = {
+  beta: number[];
+  xtxInv: number[][];
+  sigma: number;
+  sigmaGame: number;
+  intercepts: Record<string, number>;
+  counts: Record<string, number>;
+};
+
+/**
+ * Stage 1, within each game: how a game's own price moves with days out (and
+ * supply), from each game's changes around its own average. Comparing games
+ * with each other here would read "March games are pricier" as "prices fall as
+ * tip nears", because each game is only seen over a few weeks.
+ * Stage 2, between games: each game's level (its rows net of the stage-1 path)
+ * on opponent tier, weekend, TV and win rate, which prices a game with no
+ * listings. A game's own level is shrunk toward that by how many checks it has.
+ */
+function solveTwoStage(built: Design): TwoStage | null {
+  const { matrix, y, gameDates, within, level } = built;
+  const groups = groupIndexes(gameDates);
+  const n = y.length;
+  const demeanedX: number[][] = Array.from({ length: n }, () => Array(within.length).fill(0));
+  const demeanedY: number[] = Array(n).fill(0);
+  for (const rowsOf of groups.values()) {
+    const meanY = average(rowsOf.map((index) => y[index] ?? 0));
+    const meanX = within.map((column) => average(rowsOf.map((index) => matrix[index]?.[column] ?? 0)));
+    for (const index of rowsOf) {
+      demeanedY[index] = (y[index] ?? 0) - meanY;
+      within.forEach((column, at) => {
+        demeanedX[index]![at] = (matrix[index]?.[column] ?? 0) - (meanX[at] ?? 0);
+      });
+    }
+  }
+  const path = ols(demeanedX, demeanedY, 0);
+  if (!path) return null;
+  const gameCount = groups.size;
+  let sse = 0;
+  for (let index = 0; index < n; index += 1) {
+    sse += ((demeanedY[index] ?? 0) - dot(demeanedX[index] ?? [], path.beta)) ** 2;
+  }
+  const sigma2 = sse / Math.max(1, n - gameCount - within.length);
+
+  const dates = [...groups.keys()];
+  const levels: number[] = [];
+  const levelX: number[][] = [];
+  const counts: Record<string, number> = {};
+  for (const date of dates) {
+    const rowsOf = groups.get(date) ?? [];
+    counts[date] = rowsOf.length;
+    levels.push(
+      average(rowsOf.map((index) => (y[index] ?? 0) - within.reduce((sum, column, at) => sum + (matrix[index]?.[column] ?? 0) * (path.beta[at] ?? 0), 0))),
+    );
+    levelX.push(level.map((column) => matrix[rowsOf[0] ?? 0]?.[column] ?? 0));
+  }
+  // Too few games for every game-level term: keep the intercept only.
+  const levelTerms = gameCount >= level.length + 2 ? level : level.slice(0, 1);
+  const between = ols(
+    levelX.map((row) => row.slice(0, levelTerms.length)),
+    levels,
+    1e-8,
+  );
+  if (!between) return null;
+  const residuals = levels.map((value, index) => value - dot(levelX[index]?.slice(0, levelTerms.length) ?? [], between.beta));
+  const levelVar = residuals.reduce((sum, value) => sum + value * value, 0) / Math.max(1, gameCount - levelTerms.length);
+  const noise = average(dates.map((date) => sigma2 / Math.max(1, counts[date] ?? 1)));
+  const sigmaGame2 = Math.max(0, levelVar - noise);
+  const intercepts: Record<string, number> = {};
+  dates.forEach((date, index) => {
+    const weight = sigmaGame2 <= 0 ? 0 : sigmaGame2 / (sigmaGame2 + sigma2 / Math.max(1, counts[date] ?? 1));
+    intercepts[date] = weight * (residuals[index] ?? 0);
+  });
+
+  const p = built.terms.length;
+  const beta = Array(p).fill(0);
+  const xtxInv = Array.from({ length: p }, () => Array(p).fill(0));
+  within.forEach((column, at) => {
+    beta[column] = path.beta[at] ?? 0;
+    within.forEach((other, otherAt) => {
+      xtxInv[column]![other] = path.xtxInv[at]?.[otherAt] ?? 0;
+    });
+  });
+  // The level terms' spread is the between-game residual, written on the same sigma² scale.
+  const scale = sigma2 > 0 ? levelVar / sigma2 : 0;
+  levelTerms.forEach((column, at) => {
+    beta[column] = between.beta[at] ?? 0;
+    levelTerms.forEach((other, otherAt) => {
+      xtxInv[column]![other] = (between.xtxInv[at]?.[otherAt] ?? 0) * scale;
+    });
+  });
+  return { beta, xtxInv, sigma: Math.sqrt(Math.max(0, sigma2)), sigmaGame: Math.sqrt(sigmaGame2), intercepts, counts };
 }
 
 function rawFeatures(row: MarketRow, ctx: FitContext, knots: readonly number[]): number[] {
@@ -1091,10 +1210,10 @@ function featuresFor(fit: MarketFit, game: GameQuery, daysOut: number): number[]
 
 type Solved = { beta: number[]; xtxInv: number[][] };
 
-function ols(matrix: number[][], y: number[]): Solved | null {
+function ols(matrix: number[][], y: number[], ridge = 1e-8): Solved | null {
   const n = y.length;
   const p = matrix[0]?.length ?? 0;
-  if (n < p + 2 || p < 2) return null;
+  if (n < p + 2 || p < 1) return null;
   const xtx = Array.from({ length: p }, () => Array(p).fill(0));
   const xty = Array(p).fill(0);
   for (let row = 0; row < n; row += 1) {
@@ -1108,7 +1227,7 @@ function ols(matrix: number[][], y: number[]): Solved | null {
       }
     }
   }
-  for (let col = 0; col < p; col += 1) xtx[col][col] += 1e-8;
+  for (let col = 0; col < p; col += 1) xtx[col][col] += Math.max(ridge, 1e-10);
 
   const beta = solveLinear(xtx, xty);
   if (!beta) return null;
@@ -1150,57 +1269,6 @@ function solveLinear(matrix: number[][], vector: number[]): number[] | null {
   return work.map((row) => row[n] ?? 0);
 }
 
-function shrinkGames(
-  gameDates: readonly string[],
-  residuals: readonly number[],
-  parameters: number,
-): { sigma: number; sigmaGame: number; intercepts: Record<string, number>; counts: Record<string, number> } {
-  const grouped = new Map<string, number[]>();
-  for (let index = 0; index < residuals.length; index += 1) {
-    const date = gameDates[index] ?? "";
-    const list = grouped.get(date) ?? [];
-    list.push(residuals[index] ?? 0);
-    grouped.set(date, list);
-  }
-  const counts: Record<string, number> = {};
-  const means: Record<string, number> = {};
-  let sse = 0;
-  let n = 0;
-  for (const [date, values] of grouped) {
-    const mean = average(values);
-    counts[date] = values.length;
-    means[date] = mean;
-    n += values.length;
-    for (const value of values) sse += (value - mean) ** 2;
-  }
-  const games = grouped.size;
-  const sigma2 = games > 0 && n > games ? sse / (n - games) : sse / Math.max(1, n - parameters);
-  let weighted = 0;
-  let sumSq = 0;
-  for (const [date, count] of Object.entries(counts)) {
-    weighted += count * (means[date] ?? 0);
-    sumSq += count * count;
-  }
-  const grand = n > 0 ? weighted / n : 0;
-  let between = 0;
-  for (const [date, count] of Object.entries(counts)) {
-    between += count * ((means[date] ?? 0) - grand) ** 2;
-  }
-  const n0denom = games > 1 ? n - sumSq / n : 0;
-  const sigmaGame2 = games > 1 && n0denom > 0 ? Math.max(0, (between - (games - 1) * sigma2) / n0denom) : 0;
-  const intercepts: Record<string, number> = {};
-  for (const [date, count] of Object.entries(counts)) {
-    const weight = sigmaGame2 <= 0 ? 0 : sigmaGame2 / (sigmaGame2 + sigma2 / count);
-    intercepts[date] = weight * ((means[date] ?? 0) - grand);
-  }
-  return {
-    sigma: Math.sqrt(Math.max(0, sigma2)),
-    sigmaGame: Math.sqrt(sigmaGame2),
-    intercepts,
-    counts,
-  };
-}
-
 function predictPrice(
   fit: MarketFit,
   game: GameQuery,
@@ -1225,19 +1293,11 @@ function predictPrice(
   return { price, low, high };
 }
 
-function blendTowardLive(
+function scaleBand(
   band: { price: number; low: number; high: number },
-  live: number | null,
-  weight: number,
+  factor: number,
 ): { price: number; low: number; high: number } {
-  if (live == null || !Number.isFinite(live) || live <= 0 || weight >= 0.999) return band;
-  const mix = Math.min(1, Math.max(0, weight));
-  const price = Math.exp((1 - mix) * Math.log(live) + mix * Math.log(band.price));
-  const lowRatio = band.low / band.price;
-  const highRatio = band.high / band.price;
-  const low = Math.min(price * lowRatio, live, band.low);
-  const high = Math.max(price * highRatio, live, band.high);
-  return { price, low, high };
+  return { price: band.price * factor, low: band.low * factor, high: band.high * factor };
 }
 
 function bandAround(band: { price: number; low: number; high: number }): {

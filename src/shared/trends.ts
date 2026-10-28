@@ -3,6 +3,7 @@ import { finiteNumber } from "./archive";
 import {
   extractSectionNumber,
   isCompListing,
+  isPlaceholderOpponent,
   keepFromTypeIn,
   normalizeRow,
   pairFromTypeIn,
@@ -54,7 +55,12 @@ export const SIMILAR_SEATS = "Sections 107, 108, 118, and 119, rows J through T"
 /** Cheapest has to be at least this share of the median or it is an arena floor, not a similar seat. */
 const CHEAPEST_FLOOR = 0.25;
 
-const RANK = { listings: 4, column: 3, going: 2, live: 1 } as const;
+/**
+ * Which reading wins when a day has several. "partial" is a listings pull that
+ * saved fewer listings than the comps it counted (the Sep 22 pulls kept the
+ * first 50), so its middle leans cheap.
+ */
+const RANK = { listings: 5, column: 4, partial: 3, going: 2, live: 1 } as const;
 
 export type TrendPull = {
   id: number;
@@ -297,6 +303,7 @@ function observePull(pull: TrendPull, listings: readonly CompListing[]): Observa
   if (!pull.gameDate || !DAY.test(pull.gameDate) || !DAY.test(pull.etDate)) return null;
   const quote = listings.length > 0 ? bandQuote(listings) : null;
   if (quote) {
+    const partial = pull.compCount != null && listings.length < pull.compCount;
     return {
       gameDate: pull.gameDate,
       etDate: pull.etDate,
@@ -305,7 +312,7 @@ function observePull(pull: TrendPull, listings: readonly CompListing[]): Observa
       median: quote.median,
       cheapest: quote.cheapest,
       supply: quote.count,
-      kind: "listings",
+      kind: partial ? "partial" : "listings",
     };
   }
   if (pull.source === "apify") return null;
@@ -596,7 +603,11 @@ function marketGames(input: MarketInput): {
         median: roundMoney(row.median),
         cheapest: row.cheapest == null ? null : roundMoney(row.cheapest),
       });
-      if (pointDays >= 0) {
+      // The fit only reads full listing pulls (Oct 8 on). Older readings are a
+      // different measure (hand-collected middles, get-ins, a 50-listing cap)
+      // and sit far below the same games' later prices, which the fit would
+      // otherwise read as prices climbing toward tip.
+      if (pointDays >= 0 && row.kind === "listings") {
         market.push(
           marketRow(seed, {
             date: row.etDate,
@@ -697,7 +708,8 @@ function assembleTrends(
   for (const game of games) {
     if (game.daysOut == null) continue;
     const seed = seeds.get(game.date);
-    if (!seed) continue;
+    // A placeholder slot (no opponent yet) is not a game to price from similar games.
+    if (!seed || isPlaceholderOpponent(seed.opponent)) continue;
     game.projection = projectGame(fit, {
       gameDate: game.date,
       daysOut: game.daysOut,
@@ -706,7 +718,6 @@ function assembleTrends(
       nationalTv: isNationalTv(seed.notes, seed.nationalTv),
       winRate: seed.wizardsWinRate ?? null,
       supply: latestSupply.get(game.date) ?? null,
-      snapshots: game.checks,
       liveMedian: game.latestMedian,
       instantPerTicket: game.instantOffer?.perTicket ?? null,
     });
