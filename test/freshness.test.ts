@@ -46,6 +46,7 @@ describe("freshness", () => {
         { date: "2026-12-04", opponent: "TBD (NBA Cup week)", comp_checked_at: null },
         { date: "2026-10-21", opponent: "Milwaukee Bucks", comp_checked_at: "2026-10-13T20:00:00Z" },
       ],
+      sources: ["seatdata", "apify"],
       sourceCheckedAt: { seatdata: "2026-10-13T20:00:00Z", apify: null },
     });
     expect(report.staleAfterHours).toBe(72);
@@ -83,8 +84,16 @@ describe("GET /api/freshness", () => {
     };
     expect(body.games).toHaveLength(43);
     expect(body.games.every((game) => game.stale)).toBe(true);
-    expect(body.sources.map((source) => source.source)).toEqual(["seatdata", "apify"]);
+    expect(body.sources.map((source) => source.source)).toEqual(["seatdata"]);
     expect(body.sources.every((source) => source.stale)).toBe(true);
+
+    const both = await freshnessResponse(
+      { SOURCES: "seatdata,apify" } as unknown as Env,
+      new Request("https://book.example/api/freshness"),
+      NOW,
+    );
+    const bothBody = (await both.json()) as { sources: { source: string }[] };
+    expect(bothBody.sources.map((source) => source.source)).toEqual(["seatdata", "apify"]);
 
     const denied = await freshnessResponse(
       {} as Env,

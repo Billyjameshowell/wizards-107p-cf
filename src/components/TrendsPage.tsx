@@ -556,7 +556,7 @@ function SeasonView({ report }: { report: TrendsReport }) {
             you keep 95%, both seats pay double.
           </p>
           <p>
-            7-day compares today&apos;s median with a week ago. By tip is the model&apos;s game-day price.
+            7-day compares today&apos;s median with a week ago, and by tip is where the model expects the price to land on game day.
           </p>
         </div>
       </details>
