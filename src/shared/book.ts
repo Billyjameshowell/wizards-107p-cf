@@ -258,3 +258,8 @@ export function formatEtStamp(now: Date): string {
   const dayPeriod = get("dayPeriod").toLowerCase().replace(/\./g, "");
   return `${get("year")}-${month}-${day} ${hour}:${minute}${dayPeriod}`;
 }
+
+/** Book placeholder for a game the NBA has not set yet (e.g. "TBD (NBA Cup week)"). */
+export function isPlaceholderOpponent(opponent: string | null | undefined): boolean {
+  return /^\s*tbd\b/i.test(opponent ?? "");
+}

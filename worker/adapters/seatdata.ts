@@ -1,4 +1,4 @@
-import { extractSectionNumber, isCompListing, normalizeRow, type CompListing } from "../../src/shared/book";
+import { extractSectionNumber, isCompListing, isPlaceholderOpponent, normalizeRow, type CompListing } from "../../src/shared/book";
 import type { ObservedPull } from "../../src/shared/archive";
 import { selectGamesForCompPull } from "../../src/shared/price-history";
 import type { ProbableSale } from "../../src/shared/price-model";
@@ -36,10 +36,6 @@ function wizardsHomeGame(event: SearchEvent): boolean {
   return / at washington wizards\b/i.test(event.event_name ?? "");
 }
 
-/** Book placeholder for a game the NBA has not set yet (e.g. "TBD (NBA Cup week)"). */
-function isPlaceholderOpponent(opponent: string | null | undefined): boolean {
-  return /^\s*tbd\b/i.test(opponent ?? "");
-}
 
 /**
  * How many days after a placeholder's book date its real game can land. The NBA

@@ -10,7 +10,6 @@ import {
   holdoutMedianAbsPercent,
   keepingSentence,
   LIKELY_SOLD_MIN_DAYS,
-  MIN_SNAPSHOTS,
   modelExplainer,
   NOT_ENOUGH_DATA,
   offersNearTip,
@@ -133,7 +132,6 @@ function query(partial: Partial<GameQuery> & Pick<GameQuery, "gameDate" | "daysO
     nationalTv: false,
     winRate: 0.5,
     supply: 6,
-    snapshots: 8,
     liveMedian: 180,
     ...partial,
   };
@@ -175,7 +173,7 @@ describe("fitMarketModel on a known curve", () => {
 
     const sample = rows.filter((row) => row.tier === "standard" && !row.weekend && !row.nationalTv).slice(0, 30);
     const misses = sample.map((row) => {
-      const projected = projectGame(fit, query({ gameDate: row.gameDate, daysOut: row.daysOut, liveMedian: null, winRate: row.winRate, supply: row.supply, tier: row.tier, weekend: row.weekend, nationalTv: row.nationalTv, snapshots: 40 }));
+      const projected = projectGame(fit, query({ gameDate: row.gameDate, daysOut: row.daysOut, liveMedian: null, winRate: row.winRate, supply: row.supply, tier: row.tier, weekend: row.weekend, nationalTv: row.nationalTv }));
       const truthPrice = Math.exp(trueLog({ ...row, median: 1 }, truth));
       expect(projected.enough).toBe(true);
       expect(projected.todayLow!).toBeLessThanOrEqual(projected.todayPrice!);
@@ -187,16 +185,16 @@ describe("fitMarketModel on a known curve", () => {
     const typical = misses.slice().sort((a, b) => a - b)[Math.floor(misses.length / 2)] ?? 1;
     expect(typical).toBeLessThan(0.08);
 
-    const far = projectGame(fit, query({ gameDate: "2027-01-07", daysOut: 50, liveMedian: null, snapshots: 40, winRate: 0.5, supply: 6 }));
-    const near = projectGame(fit, query({ gameDate: "2027-01-07", daysOut: 5, liveMedian: null, snapshots: 40, winRate: 0.5, supply: 6 }));
+    const far = projectGame(fit, query({ gameDate: "2027-01-07", daysOut: 50, liveMedian: null, winRate: 0.5, supply: 6 }));
+    const near = projectGame(fit, query({ gameDate: "2027-01-07", daysOut: 5, liveMedian: null, winRate: 0.5, supply: 6 }));
     expect(far.todayPrice).not.toBeNull();
     expect(near.todayPrice).not.toBeNull();
     expect(far.todayPrice!).toBeGreaterThan(near.todayPrice!);
 
     const hot = "2027-01-01";
     const cold = "2027-01-04";
-    const hotPrice = projectGame(fit, query({ gameDate: hot, daysOut: 30, liveMedian: null, snapshots: 40, tier: "marquee", weekend: true, nationalTv: true, winRate: 0.25, supply: 6 }));
-    const coldPrice = projectGame(fit, query({ gameDate: cold, daysOut: 30, liveMedian: null, snapshots: 40, tier: "soft", weekend: false, nationalTv: false, winRate: 0.25, supply: 6 }));
+    const hotPrice = projectGame(fit, query({ gameDate: hot, daysOut: 30, liveMedian: null, tier: "marquee", weekend: true, nationalTv: true, winRate: 0.25, supply: 6 }));
+    const coldPrice = projectGame(fit, query({ gameDate: cold, daysOut: 30, liveMedian: null, tier: "soft", weekend: false, nationalTv: false, winRate: 0.25, supply: 6 }));
     expect(hotPrice.todayPrice!).toBeGreaterThan(coldPrice.todayPrice!);
     expect(fit.intercepts[hot] ?? 0).toBeGreaterThan(fit.intercepts[cold] ?? 0);
   });
@@ -226,21 +224,21 @@ describe("fitMarketModel on a known curve", () => {
 });
 
 describe("gates, early blend, and the list suggestion", () => {
-  it("says not enough data before five checks, and after tip", () => {
+  it("prices a game with no listings from similar games, says so, and says nothing after tip", () => {
     const { rows } = panel(0.01, 3);
     const fit = fitMarketModel(rows, "2026-10-08");
-    const thin = projectGame(fit, query({ gameDate: "2027-01-01", daysOut: 20, snapshots: MIN_SNAPSHOTS - 1 }));
-    expect(thin.enough).toBe(false);
-    expect(thin.price).toBeNull();
-    expect(thin.sentence).toBe(NOT_ENOUGH_DATA);
-    expect(thin.suggestion).toBeNull();
+    const unlisted = projectGame(fit, query({ gameDate: "2027-05-01", daysOut: 20, liveMedian: null }));
+    expect(unlisted.enough).toBe(true);
+    expect(unlisted.todayPrice).not.toBeNull();
+    expect(unlisted.sentence).toMatch(/No similar seats are listed for this game yet/);
+    expect(unlisted.suggestion?.ask).not.toBeNull();
 
-    const tipped = projectGame(fit, query({ gameDate: "2027-01-01", daysOut: -1, snapshots: 10 }));
+    const tipped = projectGame(fit, query({ gameDate: "2027-01-01", daysOut: -1 }));
     expect(tipped.sentence).toBe("");
-    expect(MIN_SNAPSHOTS).toBe(5);
+    expect(projectGame({ ok: false, version: "1", rows: 0, games: 0, observedGames: 0, reason: "x" }, query({ gameDate: "2027-01-01", daysOut: 5 })).sentence).toBe(NOT_ENOUGH_DATA);
   });
 
-  it("leans toward the live middle until the trust bar", () => {
+  it("anchors today on the live middle and only uses the fit for the path to tip", () => {
     const rows: MarketRow[] = [];
     for (let game = 0; game < 4; game += 1) {
       const gameDate = addDays("2027-03-01", game * 7);
@@ -269,13 +267,15 @@ describe("gates, early blend, and the list suggestion", () => {
     const live = 240;
     const projected = projectGame(
       fit,
-      query({ gameDate: "2027-03-01", daysOut: 18, snapshots: 8, liveMedian: live, tier: "marquee" }),
+      query({ gameDate: "2027-03-01", daysOut: 18, liveMedian: live, tier: "marquee" }),
     );
     expect(projected.early).toBe(true);
     expect(projected.early).toBe(true);
     expect(projected.sentence).not.toMatch(/Early estimate/);
     expect(projected.todayPrice).not.toBeNull();
-    expect(Math.abs((projected.todayPrice ?? 0) - live) / live).toBeLessThan(0.15);
+    expect(projected.todayPrice).toBe(live);
+    // These games get pricier further out, so the tip price is under today's.
+    expect(projected.price!).toBeLessThan(live);
   });
 
   it("uses a sale curve that falls as the ask rises, never saturates, and never lists", () => {
@@ -510,7 +510,7 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(weight).toBeGreaterThan(0);
     const lifted = projectGame(
       fit,
-      query({ gameDate: "2026-11-01", daysOut: 20, snapshots: 8, liveMedian: null, instantPerTicket: 200 }),
+      query({ gameDate: "2026-11-01", daysOut: 20, liveMedian: null, instantPerTicket: 200 }),
     );
     expect(lifted.todayPrice).toBeGreaterThanOrEqual(210);
   });
@@ -518,7 +518,8 @@ describe("gates, early blend, and the list suggestion", () => {
   it("explains the model without technical jargon", () => {
     const note = modelExplainer();
     expect(note).toMatch(/early estimate/i);
-    expect(note).toMatch(/five checks/);
+    expect(note).toMatch(/latest middle of similar seats/);
+    expect(note).toMatch(/no listings yet gets a price from similar games/);
     expect(note).toMatch(/leaving out singles/);
     expect(note).toMatch(/\$6,000/);
     expect(note).toMatch(/15%/);

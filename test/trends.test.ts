@@ -5,6 +5,7 @@ import { NOT_ENOUGH_DATA } from "@shared/price-model";
 import {
   bandQuote,
   buildTrendsReport,
+  cleanedMarketRows,
   plausibleCheapest,
   type TrendListing,
   type TrendPull,
@@ -70,6 +71,63 @@ describe("similar-seat quotes", () => {
   it("drops an arena floor that is nowhere near the similar-seat middle", () => {
     expect(plausibleCheapest(8, 230)).toBeNull();
     expect(plausibleCheapest(89, 236)).toBe(89);
+  });
+});
+
+describe("projection anchored to today's comps", () => {
+  // Five listed games checked daily for a week, one game nobody lists, one TBD slot.
+  const dates = ["2026-12-02", "2026-12-09", "2026-12-16", "2027-01-06", "2027-01-13"];
+  const opponents = ["Philadelphia 76ers", "Detroit Pistons", "Chicago Bulls", "Toronto Raptors", "Orlando Magic"];
+  const level = [700, 130, 90, 120, 110];
+  const pulls: TrendPull[] = [];
+  const listings: TrendListing[] = [];
+  let id = 1;
+  for (const [game, date] of dates.entries()) {
+    for (let day = 0; day < 7; day += 1) {
+      const etDate = `2026-10-${String(20 + day).padStart(2, "0")}`;
+      const middle = level[game]! * (1 + 0.004 * day);
+      pulls.push(pull({ id, source: "seatdata", gameDate: date, opponent: opponents[game]!, etDate, pulledAt: `${etDate}T12:00:00.000Z`, compCount: 3 }));
+      for (const [index, price] of [middle * 0.9, middle, middle * 1.1].entries()) {
+        listings.push({ pullId: id, section: "118", row: ["K", "M", "P"][index]!, quantity: 2, price: Math.round(price * 100) / 100, active: 1 });
+      }
+      id += 1;
+    }
+  }
+  // An early pull that saved only one of its 40 comps, far under the game's real middle.
+  pulls.push(pull({ id, source: "seatdata", gameDate: dates[0]!, opponent: opponents[0]!, etDate: "2026-10-12", pulledAt: "2026-10-12T12:00:00.000Z", compCount: 40 }));
+  listings.push({ pullId: id, section: "118", row: "K", quantity: 2, price: 250, active: 1 });
+  const games = [
+    ...dates.map((date, index) => seed({ date, opponent: opponents[index]! })),
+    seed({ date: "2027-01-20", opponent: "Chicago Bulls" }),
+    seed({ date: "2026-12-30", opponent: "TBD (NBA Cup week)" }),
+  ];
+  const report = buildTrendsReport({ today: "2026-10-28", games, pulls, listings });
+  const byDate = new Map(report.games.map((game) => [game.date, game]));
+
+  it("prices a listed game off its latest middle, not a level fitted on other games", () => {
+    const sixers = byDate.get("2026-12-02")!;
+    expect(sixers.projection.enough).toBe(true);
+    expect(sixers.projection.todayPrice).toBe(Math.round(sixers.latestMedian!));
+    expect(sixers.ask!).toBeGreaterThan(sixers.latestMedian! * 0.85);
+  });
+
+  it("keeps a partial listings pull out of the fit and shows it only as a weak reading", () => {
+    const sixers = byDate.get("2026-12-02")!;
+    expect(sixers.series[0]).toMatchObject({ date: "2026-10-12", median: 250 });
+    // A 250 → 700 jump would read as prices nearly tripling toward tip if the fit saw it.
+    const rows = cleanedMarketRows({ today: "2026-10-28", games, pulls, listings });
+    expect(rows.filter((row) => row.gameDate === "2026-12-02")).toHaveLength(7);
+    expect(rows.some((row) => row.median < 600 && row.gameDate === "2026-12-02")).toBe(false);
+  });
+
+  it("gives an unlisted game a price from similar games, and leaves a TBD slot alone", () => {
+    const unlisted = byDate.get("2027-01-20")!;
+    expect(unlisted.checks).toBe(0);
+    expect(unlisted.projection.sentence).toMatch(/No similar seats are listed for this game yet/);
+    expect(unlisted.ask).not.toBeNull();
+    const tbd = byDate.get("2026-12-30")!;
+    expect(tbd.projection.enough).toBe(false);
+    expect(tbd.ask).toBeNull();
   });
 });
 
@@ -172,20 +230,17 @@ describe("buildTrendsReport", () => {
     expect(bucks?.latestCheapest).toBeGreaterThan(80);
     expect(bucks?.latestCheapest).toBeLessThan(120);
     expect(bucks?.changeSinceFirst).toBeLessThan(0);
-    expect(bucks?.projection.enough).toBe(true);
-    expect(bucks?.projection.early).toBe(true);
-    expect(bucks?.projection.early).toBe(true);
-    expect(bucks?.projection.sentence).toMatch(/by tip/);
-    expect(bucks?.projection.price).not.toBeNull();
-    expect(bucks?.projection.todayPrice).not.toBeNull();
-    expect(bucks?.projection.suggestion?.sentence).not.toMatch(/Nothing is listed/);
+    // The backfill has no full listing pulls, so the path-to-tip fit waits; the ask still
+    // comes from the latest similar-seat middle.
+    expect(bucks?.projection.enough).toBe(false);
+    expect(bucks?.offers.length).toBeGreaterThan(0);
     expect(bucks?.ask).not.toBeNull();
     expect(bucks?.instantOffer).toBeNull();
     expect(bucks?.takeInstant).toBe(false);
 
     const pistons = report.games.find((row) => row.date === "2026-10-10");
     expect(pistons?.checks).toBe(0);
-    expect(pistons?.projection.sentence).toBe(NOT_ENOUGH_DATA);
+    expect(pistons?.projection.enough).toBe(false);
 
     expectPublic(report);
   });
