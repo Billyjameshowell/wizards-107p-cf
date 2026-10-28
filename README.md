@@ -18,7 +18,9 @@ Morning cron writes the live book to D1/KV. The UI reads `/api/book`. No Vercel.
 
 Production `wrangler.jsonc` has paid pulls **on** (`INGEST_ENABLED=true`, `DRY_RUN=false`). Spend caps are unchanged. `wrangler deploy` replaces dashboard vars with that file, so those two flags have to stay on there or the next deploy stops the morning job. Local `.dev.vars` keeps pulls off and is not deployed.
 
-Live: https://wizards-107p-cf.dfm7gb44c6.workers.dev
+Live: https://wizards.billycommandcenter.com/
+
+https://wizards-107p-cf.dfm7gb44c6.workers.dev still works.
 
 Production D1, KV, and the archive R2 bucket are wired in `wrangler.jsonc`. `CRON_SECRET`, `SEATDATA_API_KEY`, and `APIFY_TOKEN` are Workers secrets. Confirm the two API secrets are real keys before the first paid morning.
 
