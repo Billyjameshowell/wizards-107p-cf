@@ -2,15 +2,16 @@ import type { Game } from "../src/shared/book";
 import type { LoggedInstantOffer } from "../src/shared/instant-offer";
 import { SEASON_CUSHION_DEFAULT } from "../src/shared/price-model";
 import { compMedianOf, demandOf, etYmd } from "../src/shared/pricing";
+import type { ModelAsk } from "../src/shared/pricing";
 import {
   buildTrendsReport,
+  modelAsksOf,
   type TrendListing,
   type TrendPull,
   type TrendsGameSeed,
 } from "../src/shared/trends";
 import { ensureArchiveBackfill } from "./archive-store";
 import { loadInstantOffers } from "./instant-offers";
-import { loadCertainSales } from "./likely-sales";
 import { loadLiveBook } from "./store";
 
 /**
@@ -174,10 +175,9 @@ export const TRENDS_CACHE_KEY = "trends:v1";
 async function buildTrends(env: Env, now: Date) {
   await ensureArchiveBackfill(env);
   const book = await loadLiveBook(env);
-  const [pulls, listings, certainSales, instantOffers] = await Promise.all([
+  const [pulls, listings, instantOffers] = await Promise.all([
     loadTrendPulls(env),
     loadTrendListings(env),
-    loadCertainSales(env),
     loadInstantOffers(env),
   ]);
   return buildTrendsReport({
@@ -190,16 +190,34 @@ async function buildTrends(env: Env, now: Date) {
     listings,
     breakEven: book.season_cost,
     cushion: cushionOf(env),
-    certainSales,
     instantOffers,
   });
 }
 
-/** Recompute the trends report and store it in KV. The daily cron calls this. */
+/** The model ask per game date, saved next to the report so the book can read it cheaply. */
+export const MODEL_ASKS_KEY = "model-asks:v1";
+
+/**
+ * Recompute the trends report and store it in KV, with the compact model asks
+ * the book reads. The daily cron calls this.
+ */
 export async function refreshTrends(env: Env, now = new Date()): Promise<string> {
-  const raw = JSON.stringify(await buildTrends(env, now));
+  const report = await buildTrends(env, now);
+  const raw = JSON.stringify(report);
   await env.BOOK.put(TRENDS_CACHE_KEY, raw);
+  await env.BOOK.put(MODEL_ASKS_KEY, JSON.stringify({ today: report.today, asks: modelAsksOf(report) }));
   return raw;
+}
+
+/** The last saved model asks, or undefined before the first trends run (the book then keeps what it has). */
+export async function loadModelAsks(env: Env): Promise<Record<string, ModelAsk> | undefined> {
+  try {
+    const saved = await env.BOOK.get<{ asks?: Record<string, ModelAsk> }>(MODEL_ASKS_KEY, "json");
+    return saved?.asks && typeof saved.asks === "object" ? saved.asks : undefined;
+  } catch (error) {
+    console.error("model asks", error);
+    return undefined;
+  }
 }
 
 /** Serve the cached report; rebuild on a miss or when it is from an earlier ET day. */

@@ -1,6 +1,7 @@
 import type { ObservedPull } from "../src/shared/archive";
 import { formatEtStamp, recomputeBookTotals, type Book, type Game } from "../src/shared/book";
 import { priceBook } from "../src/shared/book-pricing";
+import type { ModelAsk } from "../src/shared/pricing";
 import { etDateFrom, parseFlags, type Flags, type SpendState } from "../src/shared/guardrails";
 import {
   blendCompHistory,
@@ -12,6 +13,7 @@ import { runSeatData } from "./adapters/seatdata";
 import type { AdapterResult, MarketPoint } from "./adapters/types";
 import { archiveObserved, ensureArchiveBackfill, rowsForAdapter } from "./archive-store";
 import { insertProbableSales } from "./likely-sales";
+import { loadModelAsks } from "./trends";
 import {
   loadLiveBook,
   readCompHistory,
@@ -122,7 +124,6 @@ function applyPoints(
   let compPoint: MarketPoint | undefined;
   for (const point of points) {
     if (point.date !== game.date) continue;
-    if (point.advisedAsk != null) next.advised_ask = point.advisedAsk;
     if (point.getIn != null) next.market_get_in = point.getIn;
     if (point.median != null) next.market_median = point.median;
     if (point.listingCount != null) next.listing_count = point.listingCount;
@@ -162,6 +163,7 @@ export function mergeBook(
   results: AdapterResult[],
   now: Date,
   history: ReadonlyMap<string, CompObservation[]> = new Map(),
+  modelAsks?: Readonly<Record<string, ModelAsk>>,
 ): Book {
   const etDate = etDateFrom(now);
   const byDate = new Map<string, MarketPoint[]>();
@@ -183,6 +185,7 @@ export function mergeBook(
       list_nothing_until_billy_says: true,
     }),
     etDate,
+    modelAsks,
   );
 }
 
@@ -336,7 +339,7 @@ export async function runIngest(
     } catch (error) {
       console.error("price history read", error);
     }
-    nextBook = mergeBook(book, sources, now, history);
+    nextBook = mergeBook(book, sources, now, history, await loadModelAsks(env));
     await writeBook(env, nextBook);
   }
 

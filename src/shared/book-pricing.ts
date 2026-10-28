@@ -1,5 +1,5 @@
 import { roundMoney, vsSeason, type Book, type Game } from "./book";
-import { seatPriceForGame } from "./pricing";
+import { seatPriceForGame, type ModelAsk } from "./pricing";
 
 /** What a sold pair actually brought, or null if it is not sold with a known amount. */
 export function soldKeepTotalOf(game: Pick<Game, "sold" | "sold_keep_total">): number | null {
@@ -21,15 +21,24 @@ export function startingTypeIn(
 }
 
 /**
- * Fill each game's keep-per-seat (advised_ask) and pair cash from the newest
- * comps, or from his live listing price, or from the sold amount. Season cash
+ * Fill each game's keep-per-seat (advised_ask) and pair cash from his live
+ * listing price, else the price model's ask, else the sold amount. Season cash
  * (sell_book_cash) is money already in from sold pairs; planned_sell_cash adds
- * the unsold Sell games at today's prices.
+ * the unsold Sell games at those prices.
+ *
+ * modelAsks is the trends step's saved ask per game date. When it is given it
+ * replaces every game's model_* fields (a game the model did not price gets
+ * none); when it is omitted the fields already on the book are kept.
  */
-export function priceBook(book: Book, todayEt: string): Book {
+export function priceBook(
+  book: Book,
+  todayEt: string,
+  modelAsks?: Readonly<Record<string, ModelAsk>>,
+): Book {
   let banked = 0;
   let planned = 0;
-  const games = book.games.map((game) => {
+  const games = book.games.map((input) => {
+    const game = modelAsks ? withModelAsk(input, modelAsks[input.date] ?? null) : input;
     const sold = soldKeepTotalOf(game);
     if (sold != null) {
       banked += sold;
@@ -51,5 +60,14 @@ export function priceBook(book: Book, todayEt: string): Book {
     sell_book_cash,
     planned_sell_cash: roundMoney(planned),
     vs_6k: vsSeason(sell_book_cash, book.season_cost),
+  };
+}
+
+function withModelAsk(game: Game, model: ModelAsk | null): Game {
+  return {
+    ...game,
+    model_ask: model?.ask ?? null,
+    model_sale_chance: model?.chance ?? null,
+    model_expected: model?.expected ?? null,
   };
 }

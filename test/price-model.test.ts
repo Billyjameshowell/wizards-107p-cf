@@ -18,6 +18,7 @@ import {
   planSeason,
   projectGame,
   SALE_PRIORS,
+  saleOutcomeRows,
   saleProbability,
   storedModelFit,
   suggestListPrice,
@@ -277,35 +278,56 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(Math.abs((projected.todayPrice ?? 0) - live) / live).toBeLessThan(0.15);
   });
 
-  it("uses a conservative sale curve and never lists", () => {
+  it("uses a sale curve that falls as the ask rises, never saturates, and never lists", () => {
     const fair = 200;
-    const atFair = saleProbability({ ask: fair, predictedMedian: fair, daysOut: 14, supply: 6 });
-    const rich = saleProbability({ ask: fair * 1.25, predictedMedian: fair, daysOut: 14, supply: 6 });
-    const crowded = saleProbability({ ask: fair, predictedMedian: fair, daysOut: 14, supply: 30 });
-    const sooner = saleProbability({ ask: fair, predictedMedian: fair, daysOut: 2, supply: 6 });
+    const atFair = saleProbability({ ask: fair, predictedMedian: fair, daysOut: 14 });
+    const cheap = saleProbability({ ask: fair * 0.7, predictedMedian: fair, daysOut: 14 });
+    const rich = saleProbability({ ask: fair * 1.25, predictedMedian: fair, daysOut: 14 });
+    const sooner = saleProbability({ ask: fair, predictedMedian: fair, daysOut: 2 });
+    const giveaway = saleProbability({ ask: 1, predictedMedian: fair, daysOut: 60 });
+    expect(cheap).toBeGreaterThan(atFair);
     expect(rich).toBeLessThan(atFair);
-    expect(crowded).toBeLessThan(atFair);
     expect(sooner).toBeLessThan(atFair);
-    expect(atFair).toBeGreaterThan(0.05);
-    expect(atFair).toBeLessThan(0.6);
+    expect(atFair).toBeGreaterThan(0.4);
+    expect(atFair).toBeLessThan(0.9);
+    expect(giveaway).toBeLessThanOrEqual(0.95);
 
-    const suggestion = suggestListPrice({ predictedMedian: fair, daysOut: 14, supply: 6 });
+    const offers = askOffers({ predictedMedian: fair, daysOut: 14 });
+    for (let index = 1; index < offers.length; index += 1) {
+      expect(offers[index]!.ask).toBeGreaterThan(offers[index - 1]!.ask);
+      expect(offers[index]!.chance).toBeLessThan(offers[index - 1]!.chance);
+    }
+    expect(new Set(offers.map((row) => row.chance)).size).toBe(offers.length);
+
+    const suggestion = suggestListPrice({ predictedMedian: fair, daysOut: 14 });
     expect(suggestion.hold).toBe(false);
     expect(suggestion.ask).not.toBeNull();
     expect(suggestion.sentence).not.toMatch(/Nothing is listed/);
     expect(suggestion).not.toHaveProperty("listed");
     expect(suggestion).not.toHaveProperty("attendValue");
 
-    const offers = askOffers({ predictedMedian: fair, daysOut: 14, supply: 6 });
     const chosen = offers.find((row) => row.ask === suggestion.ask);
     expect(chosen).toBeTruthy();
     for (const row of offers) {
       expect(chosen?.expected ?? 0).toBeGreaterThanOrEqual(row.expected - 0.01);
     }
+    // The best ask is interior, not an edge of the 70-150% ladder.
+    expect(chosen?.ask).toBeGreaterThan(offers[0]!.ask);
+    expect(chosen?.ask).toBeLessThan(offers[offers.length - 1]!.ask);
   });
 
   it("leans toward a safer ask when the season goal is out of reach, and holds out when cash is already in", () => {
-    const offers = [offer(100, 0.2), offer(80, 0.5), offer(70, 0.75), offer(60, 0.9), offer(50, 0.98)];
+    // Most expected cash is 60. 100 and 45 also clear the lean's cash floor but sit
+    // outside the ±10% band, so the lean never jumps to them.
+    const offers = [
+      offer(100, 0.5),
+      offer(66, 0.8),
+      offer(63, 0.85),
+      offer(60, 0.9),
+      offer(57, 0.93),
+      offer(54, 0.95),
+      offer(45, 0.99),
+    ];
     const game = { date: "2026-12-01", opponent: "Knicks", keeping: false, sold: false, banked: 0, offers };
     const poor = planSeason([game], { breakEven: 6000, cushion: 0.15 });
     const rich = planSeason(
@@ -316,6 +338,8 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(rich.lean).toBe("patient");
     expect(poor.target).toBe(6900);
     expect(poor.asks["2026-12-01"]?.ask).toBeLessThan(rich.asks["2026-12-01"]?.ask ?? 0);
+    expect(poor.asks["2026-12-01"]?.ask).toBe(54);
+    expect(rich.asks["2026-12-01"]?.ask).toBe(66);
     expect(poor.asks["2026-12-01"]?.chance).toBeGreaterThan(rich.asks["2026-12-01"]?.chance ?? 1);
     expect(poor.sentence).not.toMatch(/Nothing is listed/);
     expect(rich.banked).toBe(20000);
@@ -366,35 +390,42 @@ describe("gates, early blend, and the list suggestion", () => {
     expect(single).toHaveLength(0);
   });
 
-  it("keeps the hand-set sale curve until both outcomes are thick, then lets sales move it", () => {
-    const thin = calibrateSaleCurve([
-      { sold: true, certain: false, ask: 100, predictedMedian: 100, daysOut: 10, supply: 4 },
+  it("labels a played game's pair sold when its seats are gone from the last check before tip", () => {
+    const rows = saleOutcomeRows(
+      [
+        snap({ etDate: "2026-11-20", daysOut: 11, price: 150, row: "K" }),
+        snap({ etDate: "2026-11-20", daysOut: 11, price: 300, row: "M" }),
+        // A later pull the same day is ignored.
+        snap({ etDate: "2026-11-20", pulledAt: "2026-11-20T22:00:00.000Z", daysOut: 11, price: 999, row: "Q" }),
+        snap({ etDate: "2026-11-30", daysOut: 1, price: 280, row: "M" }),
+        // An upcoming game is left out.
+        snap({ gameDate: "2026-12-20", etDate: "2026-11-20", daysOut: 30, price: 100, row: "K" }),
+      ],
+      "2026-12-05",
+    );
+    expect(rows).toEqual([
+      { sold: true, ratio: 150 / 190, daysOut: 11 },
+      { sold: false, ratio: 300 / 190, daysOut: 11 },
     ]);
+  });
+
+  it("keeps the set sale curve until both outcomes are thick, then lets played games move its level", () => {
+    const thin = calibrateSaleCurve([{ sold: true, ratio: 1, daysOut: 10 }]);
     expect(thin).toEqual(SALE_PRIORS);
 
-    const samples = [
-      ...Array.from({ length: 40 }, () => ({
-        sold: true,
-        certain: false,
-        ask: 100,
-        predictedMedian: 100,
-        daysOut: 14,
-        supply: 6,
-      })),
-      ...Array.from({ length: 40 }, () => ({
-        sold: false,
-        certain: false,
-        ask: 180,
-        predictedMedian: 100,
-        daysOut: 14,
-        supply: 6,
-      })),
-    ];
-    const curve = calibrateSaleCurve(samples);
+    const rows = Array.from({ length: 600 }, (_, index) => ({
+      sold: index % 10 < 8,
+      ratio: 0.8 + (index % 7) * 0.1,
+      daysOut: index % 15,
+    }));
+    const curve = calibrateSaleCurve(rows);
     expect(curve.intercept).not.toBe(SALE_PRIORS.intercept);
-    const fair = saleProbability({ ask: 100, predictedMedian: 100, daysOut: 14, supply: 6, curve });
-    const rich = saleProbability({ ask: 180, predictedMedian: 100, daysOut: 14, supply: 6, curve });
+    expect(curve.logRatio).toBe(SALE_PRIORS.logRatio);
+    const fair = saleProbability({ ask: 100, predictedMedian: 100, daysOut: 14, curve });
+    const rich = saleProbability({ ask: 180, predictedMedian: 100, daysOut: 14, curve });
+    const before = saleProbability({ ask: 100, predictedMedian: 100, daysOut: 14 });
     expect(fair).toBeGreaterThan(rich);
+    expect(fair).toBeGreaterThan(before);
   });
 
   it("reads a sell-now offer from the pair total or the per-ticket amount", () => {
@@ -417,7 +448,6 @@ describe("gates, early blend, and the list suggestion", () => {
     const near = suggestListPrice({
       predictedMedian: 40,
       daysOut: 3,
-      supply: 8,
       instantTotal: 500,
       instantPerTicket: 250,
     });
@@ -430,7 +460,6 @@ describe("gates, early blend, and the list suggestion", () => {
     const later = suggestListPrice({
       predictedMedian: 40,
       daysOut: 30,
-      supply: 8,
       instantTotal: 500,
       instantPerTicket: 250,
     });
@@ -440,7 +469,6 @@ describe("gates, early blend, and the list suggestion", () => {
     const cleared = suggestListPrice({
       predictedMedian: 200,
       daysOut: 2,
-      supply: 4,
       instantTotal: 50,
       instantPerTicket: 25,
     });

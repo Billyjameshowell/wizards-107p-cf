@@ -82,7 +82,7 @@ const CARD_ACCENT: Record<Tone, string> = {
 };
 
 const TIP = {
-  model: "Model price: our suggested per-seat type-in for Ticketmaster (before the 5% seller fee). Median of comparable 107/108/118/119 rows J–T listings, plus any premium. Display only.",
+  model: "Model price: the price model's per-seat type-in for Ticketmaster (before the 5% seller fee), the same ask the trends page and grid show. Display only.",
   yours: "Your price: the per-seat number you type into Ticketmaster (before the 5% fee). Starts at the model price or your live listing; edit to override. You keep 95% of it per seat.",
   pair: "Pair total: Your price × 2 seats, before fees. Hover a value for the payout after the 5% fee.",
   getIn: "Get in price: cheapest single-ticket listing anywhere in the arena (not your section), per seat, from the SeatData pull. Listing price as SeatData reports it (may include buyer fees).",
@@ -800,12 +800,12 @@ export function TicketBook({
           </p>
           <p>
             The middle is similar lower-bowl seats: 107, 108, 118 and 119, rows J–T, without a lone cheap 107P
-            listing. Suggestions are whole dollars ending in 0 or 5 ($150, $175), or 9 when it drops a digit ($199).
-            Your own number can be anything and stays put.
+            listing. It is shown for context. Your own number can be anything and stays put.
           </p>
           <p>
-            Big games sit about 10% over the middle until three weeks out; soft games drop about 5% inside two weeks.
-            The $6,000 goal doesn&apos;t move a game&apos;s price.
+            The suggested price is the price model&apos;s ask, the same one the Trends page and the grid show: the
+            whole-dollar ask with the most expected cash after its chance of selling before tip, leaned a little
+            toward safer or more patient prices depending on how the season goal looks.
           </p>
         </div>
       </details>

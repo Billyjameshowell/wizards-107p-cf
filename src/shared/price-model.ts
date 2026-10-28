@@ -38,21 +38,49 @@ const KNOTS = [7, 21, 45, 90] as const;
 const LOG_CLAMP = 0.8;
 
 /**
- * Hand-set until vanished listings and fetched sales are thick enough to move it.
- * Higher asks and more competing seats lower the chance; more days left raise it.
+ * Chance an ask sells before tip: logistic in log(ask / middle) and log(1 + days
+ * left), with days capped at SALE_DAYS_CAP because the archive only sees how
+ * listings end within a few weeks of tip. calibrateSaleCurve fits the level and
+ * the days term from how comparable pairs ended on games already played.
+ *
+ * The price slope is set, not fitted. Comparable pairs mix better and worse seats
+ * (rows J-T in four sections), so pricier listings are often just better seats and
+ * the archive's slope is blurred toward zero (about -1 near tip, flat further out).
+ * A slope that flat makes the highest ask always look best. At -3 (the old hand
+ * prior was -2.8) the most-expected-cash ask sits near the middle, about 5% over
+ * it, with roughly a 65-70% sale chance two weeks or more out.
+ *
+ * The level and days term start at what the 2026-10-28 fit on played games gave
+ * (about -1.57 and 0.89 on ~8,500 pair outcomes), so a refit that cannot run
+ * still prices the same way.
  */
 export const SALE_PRIORS = {
-  intercept: -1.2,
-  logRatio: -2.8,
-  logDays: 0.45,
-  logSupply: -0.35,
+  intercept: -1.55,
+  logRatio: -3,
+  logDays: 0.9,
 } as const;
 
 export type SaleCurve = {
   intercept: number;
   logRatio: number;
   logDays: number;
-  logSupply: number;
+};
+
+/**
+ * Days beyond this add no chance. Played games in the archive show how listings
+ * end only within about two weeks of tip (SeatData listings start Oct 8), so the
+ * curve is not stretched past what it has seen.
+ */
+export const SALE_DAYS_CAP = 14;
+/** No ask is a sure sale; a pair can always go unsold. */
+export const MAX_SALE_CHANCE = 0.95;
+
+/** One comparable pair on a played game: listed at `ratio` of that day's middle, `daysOut` before tip. */
+export type SaleOutcomeRow = {
+  /** Its seats (section, row, quantity) were no longer listed at the last check before tip. */
+  sold: boolean;
+  ratio: number;
+  daysOut: number;
 };
 
 /** One ask the cash plan can choose. `pair` is the cash if it sells. */
@@ -90,15 +118,6 @@ export type SeasonOutlook = {
   priced: number;
   sentence: string;
   asks: Record<string, AskOffer>;
-};
-
-export type SaleSample = {
-  sold: boolean;
-  certain: boolean;
-  ask: number;
-  predictedMedian: number;
-  daysOut: number;
-  supply: number;
 };
 
 export type CompSnap = {
@@ -430,7 +449,6 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
   const suggestion = suggestListPrice({
     predictedMedian: today.price,
     daysOut: game.daysOut,
-    supply: game.supply ?? 0,
     instantPerTicket: game.instantPerTicket,
     instantTotal: game.instantPerTicket != null && game.instantPerTicket > 0 ? game.instantPerTicket * PAIR_SEATS : null,
   });
@@ -453,32 +471,34 @@ export function projectGame(fit: FitResult, game: GameQuery): PriceProjection {
   };
 }
 
+/** Chance a pair at `ask` sells before tip. Falls as the ask rises over the middle. */
 export function saleProbability(args: {
   ask: number;
   predictedMedian: number;
   daysOut: number;
-  supply: number;
   curve?: SaleCurve;
 }): number {
   const median = args.predictedMedian;
   if (!Number.isFinite(args.ask) || args.ask <= 0 || !Number.isFinite(median) || median <= 0) return 0;
   const curve = args.curve ?? SALE_PRIORS;
-  const ratio = Math.min(3, Math.max(0.25, args.ask / median));
-  const days = Math.max(0, args.daysOut);
-  const supply = Math.max(0, args.supply);
-  const logit =
-    curve.intercept +
-    curve.logRatio * Math.log(ratio) +
-    curve.logDays * Math.log(1 + days) +
-    curve.logSupply * Math.log(1 + supply);
-  return 1 / (1 + Math.exp(-logit));
+  const [, logRatio, logDays] = saleFeatures(args.ask / median, args.daysOut);
+  const logit = curve.intercept + curve.logRatio * logRatio + curve.logDays * logDays;
+  return Math.min(MAX_SALE_CHANCE, 1 / (1 + Math.exp(-logit)));
+}
+
+function saleFeatures(ratio: number, daysOut: number): [number, number, number] {
+  const days = Math.min(SALE_DAYS_CAP, Math.max(0, Number.isFinite(daysOut) ? daysOut : 0));
+  return [1, Math.log(clampRatio(ratio)), Math.log(1 + days)];
+}
+
+function clampRatio(ratio: number): number {
+  return Math.min(3, Math.max(0.25, ratio));
 }
 
 /** Asks from 70% to 150% of the fair price, one row per whole-dollar ask. */
 export function askOffers(args: {
   predictedMedian: number;
   daysOut: number;
-  supply: number;
   curve?: SaleCurve;
 }): AskOffer[] {
   const fair = args.predictedMedian;
@@ -490,7 +510,6 @@ export function askOffers(args: {
       ask,
       predictedMedian: fair,
       daysOut: args.daysOut,
-      supply: args.supply,
       curve: args.curve,
     });
     const pair = ask * PAIR_SEATS * SELLER_KEEP_RATE;
@@ -519,7 +538,6 @@ export function bestExpectedOffer(offers: readonly AskOffer[]): AskOffer | null 
 export function suggestListPrice(args: {
   predictedMedian: number;
   daysOut: number;
-  supply: number;
   curve?: SaleCurve;
   instantTotal?: number | null;
   instantPerTicket?: number | null;
@@ -589,9 +607,10 @@ const SAFER_BELOW = 0.4;
 const PATIENT_ABOVE = 0.7;
 const SAFER_KEEP = 0.82;
 const PATIENT_KEEP = 0.88;
-const PRIOR_STRENGTH = 80;
-const CALIBRATE_MIN_ROWS = 40;
-const CALIBRATE_MIN_CLASS = 8;
+/** Pseudo-rows holding the fitted level and days term near the priors (a light ridge). */
+const PRIOR_STRENGTH = 40;
+const CALIBRATE_MIN_ROWS = 400;
+const CALIBRATE_MIN_CLASS = 40;
 
 export function seasonTarget(breakEven = SEASON_COST_DEFAULT, cushion = SEASON_CUSHION_DEFAULT): number {
   const base = Number.isFinite(breakEven) && breakEven > 0 ? breakEven : SEASON_COST_DEFAULT;
@@ -780,108 +799,92 @@ function findLikelySales(snaps: readonly CompSnap[]): ProbableSale[] {
   return found;
 }
 
-/** Positives are possible or sure sales. Negatives are pairs still up close to tip. */
-export function saleSamples(snaps: readonly CompSnap[], certain: readonly ProbableSale[] = []): SaleSample[] {
-  const samples: SaleSample[] = [];
-  for (const sale of detectLikelySales(snaps)) {
-    const sample = sampleFromSale(sale, false);
-    if (sample) samples.push(sample);
-  }
-  for (const sale of certain) {
-    if (!sale.certain) continue;
-    const sample = sampleFromSale(sale, true);
-    if (sample) samples.push(sample);
-  }
-
-  const byGame = new Map<string, CompSnap[]>();
+/**
+ * How comparable pairs ended on games already played. For each played game, take
+ * the first check of each ET day; the last day with a check before tip is the end.
+ * Every pair on an earlier day is a row, `sold` when its seats (section, row,
+ * quantity) are no longer listed at the end check. Seats still up at any price
+ * did not sell at the price they had, so a price cut counts as unsold.
+ */
+export function saleOutcomeRows(snaps: readonly CompSnap[], today: string): SaleOutcomeRow[] {
+  const byGameDay = new Map<string, Map<string, CompSnap[]>>();
+  const firstPull = new Map<string, string>();
   for (const snap of snaps) {
-    if (snap.quantity < PAIR_SEATS || snap.price <= 0) continue;
-    const list = byGame.get(snap.gameDate) ?? [];
-    list.push(snap);
-    byGame.set(snap.gameDate, list);
-  }
-  for (const rows of byGame.values()) {
-    const pulls = new Map<string, CompSnap[]>();
-    for (const row of rows) {
-      const list = pulls.get(`${row.etDate}|${row.pulledAt}`) ?? [];
-      list.push(row);
-      pulls.set(`${row.etDate}|${row.pulledAt}`, list);
+    if (snap.gameDate >= today || snap.daysOut < 0) continue;
+    if (snap.quantity < PAIR_SEATS || !(snap.price > 0)) continue;
+    const dayKey = `${snap.gameDate}|${snap.etDate}`;
+    const first = firstPull.get(dayKey);
+    if (first != null && snap.pulledAt > first) continue;
+    let days = byGameDay.get(snap.gameDate);
+    if (!days) {
+      days = new Map();
+      byGameDay.set(snap.gameDate, days);
     }
-    const ordered = [...pulls.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    const seen = new Set<string>();
-    // Prices of each seat group in the checks before this one, grown as we go.
-    const earlierBySeats = new Map<string, number[]>();
-    for (let index = 0; index < ordered.length; index += 1) {
-      const current = ordered[index]?.[1] ?? [];
-      const daysOut = current[0]?.daysOut ?? 99;
-      const nearTip = !(daysOut < 0 || daysOut > LIKELY_SOLD_MIN_DAYS);
-      for (const snap of nearTip ? current : []) {
-        if (snap.median == null || snap.median <= 0) continue;
-        if (!(earlierBySeats.get(seatsKey(snap)) ?? []).some((price) => samePrice(snap.price, price))) continue;
-        const id = `${snap.gameDate}|${snap.section}|${snap.row}|${snap.quantity}|${Math.round(snap.price * 100)}`;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        samples.push({
-          sold: false,
-          certain: false,
-          ask: snap.price,
-          predictedMedian: snap.median,
-          daysOut: snap.daysOut,
-          supply: snap.supply ?? 0,
-        });
-      }
-      for (const snap of current) {
-        const list = earlierBySeats.get(seatsKey(snap)) ?? [];
-        list.push(snap.price);
-        earlierBySeats.set(seatsKey(snap), list);
+    if (first == null || snap.pulledAt < first) {
+      firstPull.set(dayKey, snap.pulledAt);
+      days.set(snap.etDate, []);
+    }
+    days.get(snap.etDate)?.push(snap);
+  }
+  const rows: SaleOutcomeRow[] = [];
+  for (const days of byGameDay.values()) {
+    const ordered = [...days.keys()].sort();
+    const stillUp = new Set((days.get(ordered[ordered.length - 1] ?? "") ?? []).map(seatsKey));
+    for (const day of ordered.slice(0, -1)) {
+      for (const snap of days.get(day) ?? []) {
+        if (snap.median == null || !(snap.median > 0)) continue;
+        rows.push({ sold: !stillUp.has(seatsKey(snap)), ratio: snap.price / snap.median, daysOut: snap.daysOut });
       }
     }
   }
-  return samples;
+  return rows;
 }
 
-export function calibrateSaleCurve(samples: readonly SaleSample[], priors: SaleCurve = SALE_PRIORS): SaleCurve {
-  const rows = samples.filter(
-    (sample) =>
-      sample.ask > 0 &&
-      sample.predictedMedian > 0 &&
-      Number.isFinite(sample.daysOut) &&
-      Number.isFinite(sample.supply),
-  );
-  const positives = rows.filter((sample) => sample.sold).length;
-  if (rows.length < CALIBRATE_MIN_ROWS || positives < CALIBRATE_MIN_CLASS || rows.length - positives < CALIBRATE_MIN_CLASS) {
+/**
+ * Fit the level and days term to the played-game rows (Newton steps on the
+ * logistic log-likelihood with a light ridge toward the priors). The price slope
+ * stays at the prior (see SALE_PRIORS). Too few rows, or too few of either
+ * outcome, keeps the priors.
+ */
+export function calibrateSaleCurve(rows: readonly SaleOutcomeRow[], priors: SaleCurve = SALE_PRIORS): SaleCurve {
+  const usable = rows.filter((row) => Number.isFinite(row.ratio) && row.ratio > 0 && Number.isFinite(row.daysOut));
+  const sold = usable.reduce((sum, row) => sum + (row.sold ? 1 : 0), 0);
+  if (usable.length < CALIBRATE_MIN_ROWS || sold < CALIBRATE_MIN_CLASS || usable.length - sold < CALIBRATE_MIN_CLASS) {
     return { ...priors };
   }
-
-  const features = rows.map((sample) => saleFeatures(sample));
-  const outcomes = rows.map((sample) => (sample.sold ? 1 : 0));
-  const baseWeight = rows.map((sample) => (sample.certain ? 2 : 1));
-  let beta = [priors.intercept, priors.logRatio, priors.logDays, priors.logSupply];
-  for (let iter = 0; iter < 12; iter += 1) {
-    const target: number[] = [];
-    const weight: number[] = [];
-    for (let index = 0; index < rows.length; index += 1) {
-      const eta = Math.min(12, Math.max(-12, dot(features[index] ?? [], beta)));
-      const chance = 1 / (1 + Math.exp(-eta));
-      const variance = Math.max(1e-4, chance * (1 - chance));
-      target.push(eta + ((outcomes[index] ?? 0) - chance) / variance);
-      weight.push((baseWeight[index] ?? 1) * variance);
+  // The set price slope enters as a fixed offset; only the level and days term move.
+  const offset = usable.map((row) => priors.logRatio * saleFeatures(row.ratio, row.daysOut)[1]);
+  const days = usable.map((row) => saleFeatures(row.ratio, row.daysOut)[2]);
+  let level = priors.intercept;
+  let slope = priors.logDays;
+  for (let iter = 0; iter < 25; iter += 1) {
+    let g0 = PRIOR_STRENGTH * (priors.intercept - level);
+    let g1 = PRIOR_STRENGTH * (priors.logDays - slope);
+    let h00 = PRIOR_STRENGTH;
+    let h01 = 0;
+    let h11 = PRIOR_STRENGTH;
+    for (let index = 0; index < usable.length; index += 1) {
+      const x = days[index] ?? 0;
+      const eta = Math.min(30, Math.max(-30, level + slope * x + (offset[index] ?? 0)));
+      const p = 1 / (1 + Math.exp(-eta));
+      const resid = (usable[index]?.sold ? 1 : 0) - p;
+      const w = p * (1 - p);
+      g0 += resid;
+      g1 += resid * x;
+      h00 += w;
+      h01 += w * x;
+      h11 += w * x * x;
     }
-    const solved = weightedSolve(features, target, weight);
-    if (!solved) return { ...priors };
-    beta = solved;
+    const det = h00 * h11 - h01 * h01;
+    if (!(Math.abs(det) > 1e-12)) return { ...priors };
+    const step0 = (h11 * g0 - h01 * g1) / det;
+    const step1 = (h00 * g1 - h01 * g0) / det;
+    level += step0;
+    slope += step1;
+    if (Math.abs(step0) < 1e-9 && Math.abs(step1) < 1e-9) break;
   }
-  if (beta.some((value) => !Number.isFinite(value))) return { ...priors };
-
-  const weightSum = baseWeight.reduce((sum, value) => sum + value, 0);
-  const prior = [priors.intercept, priors.logRatio, priors.logDays, priors.logSupply];
-  const shrunk = beta.map((value, index) => (weightSum * value + PRIOR_STRENGTH * (prior[index] ?? 0)) / (weightSum + PRIOR_STRENGTH));
-  return {
-    intercept: shrunk[0] ?? priors.intercept,
-    logRatio: shrunk[1] ?? priors.logRatio,
-    logDays: shrunk[2] ?? priors.logDays,
-    logSupply: shrunk[3] ?? priors.logSupply,
-  };
+  if (!Number.isFinite(level) || !Number.isFinite(slope)) return { ...priors };
+  return { intercept: level, logRatio: priors.logRatio, logDays: slope };
 }
 
 /** Typical percent miss when each game’s latest check is left out of the fit. */
@@ -1296,9 +1299,17 @@ function exactDollars(value: number): string {
   return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+/**
+ * The lean moves an ask at most LEAN_BAND from the most-expected-cash ask. With a
+ * sale curve that falls smoothly with price, an unbounded tilt runs to the edge of
+ * the ask range (70% or 150% of fair) on every game.
+ */
+const LEAN_BAND = 0.1;
+
 function tiltOffer(offers: readonly AskOffer[], ev: AskOffer, lean: SeasonLean): AskOffer {
+  const near = offers.filter((offer) => Math.abs(offer.ask - ev.ask) <= ev.ask * LEAN_BAND + 1e-9);
   if (lean === "safer") {
-    const pool = offers.filter((offer) => offer.chance + 1e-9 >= ev.chance && offer.expected + 1e-6 >= ev.expected * SAFER_KEEP);
+    const pool = near.filter((offer) => offer.chance + 1e-9 >= ev.chance && offer.expected + 1e-6 >= ev.expected * SAFER_KEEP);
     return pool.reduce<AskOffer | null>((best, offer) => {
       if (!best || offer.chance > best.chance + 1e-9 || (Math.abs(offer.chance - best.chance) <= 1e-9 && offer.ask < best.ask)) {
         return offer;
@@ -1307,7 +1318,7 @@ function tiltOffer(offers: readonly AskOffer[], ev: AskOffer, lean: SeasonLean):
     }, null) ?? ev;
   }
   if (lean === "patient") {
-    const pool = offers.filter((offer) => offer.ask + 1e-9 >= ev.ask && offer.expected + 1e-6 >= ev.expected * PATIENT_KEEP);
+    const pool = near.filter((offer) => offer.ask + 1e-9 >= ev.ask && offer.expected + 1e-6 >= ev.expected * PATIENT_KEEP);
     return pool.reduce<AskOffer | null>((best, offer) => (best == null || offer.ask > best.ask ? offer : best), null) ?? ev;
   }
   return ev;
@@ -1323,41 +1334,6 @@ function outlookSentence(outlook: SeasonOutlook): string {
         ? "Goal looks safe, so asks hold out a little."
         : "Asks go for the most expected cash.";
   return `Goal: ${dollars(outlook.target)} after fees (${dollars(outlook.breakEven)} + ${Math.round(outlook.cushion * 100)}%). ${dollars(outlook.banked)} is in; ${outlook.priced} priced games should add about ${dollars(outlook.expectedRest)}, so about ${dollars(outlook.expectedTotal)} in all at the suggested asks. The chance of clearing the goal is ${formatChance(outlook.chance)}.${missing} ${lean}`;
-}
-
-function sampleFromSale(sale: ProbableSale, certain: boolean): SaleSample | null {
-  if (sale.median == null || sale.median <= 0 || sale.price <= 0) return null;
-  return {
-    sold: true,
-    certain,
-    ask: sale.price,
-    predictedMedian: sale.median,
-    daysOut: sale.daysOut,
-    supply: sale.supply ?? 0,
-  };
-}
-
-function saleFeatures(sample: SaleSample): number[] {
-  const ratio = Math.min(3, Math.max(0.25, sample.ask / sample.predictedMedian));
-  return [1, Math.log(ratio), Math.log(1 + Math.max(0, sample.daysOut)), Math.log(1 + Math.max(0, sample.supply))];
-}
-
-function weightedSolve(features: readonly (readonly number[])[], target: readonly number[], weight: readonly number[]): number[] | null {
-  const width = 4;
-  const normal = Array.from({ length: width }, () => Array(width).fill(0));
-  const right = Array(width).fill(0);
-  for (let row = 0; row < features.length; row += 1) {
-    const x = features[row] ?? [];
-    const w = weight[row] ?? 0;
-    for (let col = 0; col < width; col += 1) {
-      right[col] += w * (x[col] ?? 0) * (target[row] ?? 0);
-      for (let other = 0; other < width; other += 1) {
-        normal[col][other] += w * (x[col] ?? 0) * (x[other] ?? 0);
-      }
-    }
-  }
-  for (let col = 0; col < width; col += 1) normal[col][col] += 1e-6;
-  return solveLinear(normal, right);
 }
 
 function snapKey(snap: CompSnap): string {

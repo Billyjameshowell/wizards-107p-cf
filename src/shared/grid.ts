@@ -8,14 +8,12 @@ import {
   type CompListing,
 } from "./book";
 import type { LoggedInstantOffer } from "./instant-offer";
-import { bestExpectedOffer, type SeasonOutlook } from "./price-model";
-import { daysUntil, suggestFromMedian } from "./pricing";
 import {
   bandQuote,
   buildTrendsReport,
+  modelAskFor,
   type TrendListing,
   type TrendPull,
-  type TrendsGame,
   type TrendsGameSeed,
 } from "./trends";
 import { gameMatchesQuery } from "../lib/game-search";
@@ -267,38 +265,6 @@ function dayMayHaveComps(pulls: readonly TrendPull[], listings: readonly TrendLi
   });
 }
 
-function numericAsk(
-  game: TrendsGame,
-  outlook: SeasonOutlook,
-  asOf: string,
-  seed: TrendsGameSeed | undefined,
-  onlyThatDay: boolean,
-): { ask: number; method: SuggestedMethod } | null {
-  const dayPoint = game.series.find((row) => row.date === asOf);
-  const dayMedian = dayPoint?.median ?? (onlyThatDay ? null : game.latestMedian);
-  if (dayMedian != null && dayMedian > 0) {
-    // Same rule as the book and the Sheet: the comp median, with the days-out/demand premium.
-    const daysOutNow = dayPoint ? daysUntil(game.date, asOf) : game.daysOut;
-    return { ask: suggestFromMedian({ listedMedian: dayMedian, daysOut: daysOutNow, demand: seed?.demand ?? null }).typeIn, method: "day-rules" };
-  }
-  const leaned = outlook.asks[game.date]?.ask;
-  if (positive(leaned) != null) return { ask: leaned as number, method: "model" };
-  const direct = game.projection.suggestion?.ask;
-  if (positive(direct) != null) return { ask: direct as number, method: "model" };
-  const best = bestExpectedOffer(game.offers);
-  if (best && positive(best.ask) != null) return { ask: best.ask, method: "model" };
-  const point = game.series.find((row) => row.date === asOf);
-  const median = point?.median ?? (onlyThatDay ? null : game.latestMedian);
-  if (median == null || median <= 0) return null;
-  const daysOut = point ? daysUntil(game.date, asOf) : game.daysOut;
-  const typeIn = suggestFromMedian({
-    listedMedian: median,
-    daysOut,
-    demand: seed?.demand ?? null,
-  }).typeIn;
-  return { ask: typeIn, method: "day-rules" };
-}
-
 function compPull(pulls: readonly TrendPull[], gameDate: string, etDate: string): TrendPull | null {
   const rows = pulls
     .filter((pull) => pull.gameDate === gameDate && pull.etDate === etDate)
@@ -326,13 +292,12 @@ function planOneDay(input: AskPlanInput, origin: SuggestedOrigin, onlyThatDay: b
     listings,
     instantOffers: offers,
   });
-  const seeds = new Map(input.games.map((game) => [game.date, game]));
   const rows: SuggestedAskDraft[] = [];
   for (const game of report.games) {
     const onDay = game.series.some((point) => point.date === input.asOf);
     if (onlyThatDay && !onDay) continue;
-    const priced = numericAsk(game, report.outlook, input.asOf, seeds.get(game.date), onlyThatDay);
-    if (!priced) continue;
+    const priced = modelAskFor(game, report.outlook);
+    if (!priced || !(priced.ask > 0)) continue;
     const pull = compPull(pulls, game.date, input.asOf);
     const source = origin === "snapshot" ? "model" : (pull?.source ?? "model");
     const pulledAt = origin === "snapshot" ? input.recordedAt : (pull?.pulledAt || input.recordedAt);
@@ -345,7 +310,7 @@ function planOneDay(input: AskPlanInput, origin: SuggestedOrigin, onlyThatDay: b
       origin,
       source,
       pulledAt,
-      method: priced.method,
+      method: "model",
     });
   }
   return rows;

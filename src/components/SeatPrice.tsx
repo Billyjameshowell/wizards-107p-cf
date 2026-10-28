@@ -132,13 +132,16 @@ function DollarField({
 function suggestionLines(view: SeatPriceView): string[] {
   const suggestion = view.suggestion;
   if (!suggestion) return [];
-  const comps = suggestion.heldPrior
-    ? `None listed today; recently around ${formatMoney(suggestion.listedMedian)}`
-    : `Similar seats ~${formatMoney(suggestion.listedMedian)}${
-        suggestion.compCount != null && suggestion.compCount > 0 ? ` · ${suggestion.compCount} listed` : ""
-      }`;
+  const comps =
+    suggestion.listedMedian == null
+      ? ""
+      : suggestion.heldPrior
+        ? `None listed today; recently around ${formatMoney(suggestion.listedMedian)}`
+        : `Similar seats ~${formatMoney(suggestion.listedMedian)}${
+            suggestion.compCount != null && suggestion.compCount > 0 ? ` · ${suggestion.compCount} listed` : ""
+          }`;
   return [
-    `${comps}${suggestion.excludedDump ? " · one cheap 107P left out" : ""}`,
+    comps ? `${comps}${suggestion.excludedDump ? " · one cheap 107P left out" : ""}` : "",
     suggestion.label,
     suggestion.historyNote ?? "",
   ].filter(Boolean);

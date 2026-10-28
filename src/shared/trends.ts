@@ -13,6 +13,7 @@ import {
 import { offerAsOf, type LoggedInstantOffer } from "./instant-offer";
 import {
   askOffers,
+  bestExpectedOffer,
   calibrateSaleCurve,
   detectLikelySales,
   fitMarketModel,
@@ -24,7 +25,7 @@ import {
   offersNearTip,
   planSeason,
   projectGame,
-  saleSamples,
+  saleOutcomeRows,
   SEASON_CUSHION_DEFAULT,
   sitSuggestion,
   soldSuggestion,
@@ -40,7 +41,7 @@ import {
   type ProbableSale,
   type SeasonOutlook,
 } from "./price-model";
-import { daysUntil, suggestFromMedian, type Demand } from "./pricing";
+import { daysUntil, type Demand, type ModelAsk } from "./pricing";
 
 /**
  * Public price trends. Aggregates only: no raw pulls, listings, or payloads.
@@ -123,8 +124,12 @@ export type TrendsGame = {
   change7d: number | null;
   /** Percent change from the first median to the latest. */
   changeSinceFirst: number | null;
-  /** Number to type today, per seat. */
+  /** The price model's ask: the number to type today, per seat. The book and grid read this same ask. */
   ask: number | null;
+  /** Chance the pair sells before tip at `ask`. */
+  askChance: number | null;
+  /** Expected pair cash after the fee at `ask`. */
+  askExpected: number | null;
   keep: number | null;
   pair: number | null;
   projection: PriceProjection;
@@ -486,10 +491,9 @@ export function buildTrendsReport(input: {
   seats?: number[];
   breakEven?: number;
   cushion?: number;
-  certainSales?: readonly ProbableSale[];
   instantOffers?: readonly LoggedInstantOffer[];
 }): TrendsReport {
-  return assembleTrends(input).report;
+  return assembleTrends(input);
 }
 
 /** Same cleaned rows the trends page fits, so a saved cron fit matches the page. */
@@ -500,7 +504,7 @@ export function cleanedMarketRows(input: {
   listings: readonly TrendListing[];
   instantOffers?: readonly LoggedInstantOffer[];
 }): MarketRow[] {
-  return assembleTrends(input).market;
+  return marketGames(input).market;
 }
 
 export function cashGamesFor(
@@ -522,19 +526,21 @@ export function proxySales(pulls: readonly TrendPull[], listings: readonly Trend
   return detectLikelySales(compSnaps(pulls, listings));
 }
 
-function assembleTrends(input: {
+type MarketInput = {
   today: string;
   games: readonly TrendsGameSeed[];
   pulls: readonly TrendPull[];
   listings: readonly TrendListing[];
-  section?: string;
-  row?: string;
-  seats?: number[];
-  breakEven?: number;
-  cushion?: number;
-  certainSales?: readonly ProbableSale[];
   instantOffers?: readonly LoggedInstantOffer[];
-}): { report: TrendsReport; market: MarketRow[] } {
+};
+
+/** Per-game series and the cleaned market rows. The refit needs only this part. */
+function marketGames(input: MarketInput): {
+  seeds: Map<string, TrendsGameSeed>;
+  games: TrendsGame[];
+  market: MarketRow[];
+  latestSupply: Map<string, number | null>;
+} {
   const listingsByPull = new Map<number, CompListing[]>();
   for (const row of input.listings) {
     const list = listingsByPull.get(row.pullId) ?? [];
@@ -615,16 +621,6 @@ function assembleTrends(input: {
         break;
       }
     }
-    const basis = money(seed.bookMedian) ?? latest?.median ?? null;
-    const ask =
-      basis == null
-        ? null
-        : suggestFromMedian({
-            listedMedian: basis,
-            daysOut,
-            demand: seed.demand,
-          }).typeIn;
-
     games.push({
       date: seed.date,
       opponent: seed.opponent,
@@ -638,9 +634,11 @@ function assembleTrends(input: {
       latestCheapest,
       change7d: change7d(series),
       changeSinceFirst: first && latest ? percent(first.median, latest.median) : null,
-      ask,
-      keep: ask == null ? null : keepFromTypeIn(ask),
-      pair: ask == null ? null : pairFromTypeIn(ask),
+      ask: null,
+      askChance: null,
+      askExpected: null,
+      keep: null,
+      pair: null,
       projection: daysOut == null ? emptyProjection() : emptyProjection(NOT_ENOUGH_DATA),
       sitOrSell: seed.sitOrSell ?? "",
       sold: seed.sold === true,
@@ -658,8 +656,43 @@ function assembleTrends(input: {
     });
   }
 
-  const snaps = compSnaps(input.pulls, input.listings);
-  const curve = calibrateSaleCurve(saleSamples(snaps, contextualSales(input.certainSales ?? [], snaps)));
+  return { seeds, games, market, latestSupply };
+}
+
+/**
+ * The one model ask for a game: the season plan's leaned ask for a for-sale
+ * game, else the most-expected-cash offer (Sit games, so the price is ready if
+ * he flips one). None for sold or played games.
+ */
+export function modelAskFor(
+  game: Pick<TrendsGame, "date" | "sold" | "daysOut" | "offers">,
+  outlook: Pick<SeasonOutlook, "asks">,
+): AskOffer | null {
+  if (game.sold || (game.daysOut != null && game.daysOut < 0)) return null;
+  return outlook.asks[game.date] ?? bestExpectedOffer(game.offers);
+}
+
+/** Model ask per game date, the compact form the book reads. */
+export function modelAsksOf(report: Pick<TrendsReport, "games">): Record<string, ModelAsk> {
+  const out: Record<string, ModelAsk> = {};
+  for (const game of report.games) {
+    if (game.ask == null || game.ask <= 0) continue;
+    out[game.date] = { ask: game.ask, chance: game.askChance, expected: game.askExpected };
+  }
+  return out;
+}
+
+function assembleTrends(
+  input: MarketInput & {
+    section?: string;
+    row?: string;
+    seats?: number[];
+    breakEven?: number;
+    cushion?: number;
+  },
+): TrendsReport {
+  const { seeds, games, market, latestSupply } = marketGames(input);
+  const curve = calibrateSaleCurve(saleOutcomeRows(compSnaps(input.pulls, input.listings), input.today));
   const fit = fitMarketModel(market, input.today);
   for (const game of games) {
     if (game.daysOut == null) continue;
@@ -688,7 +721,6 @@ function assembleTrends(input: {
         : askOffers({
             predictedMedian: fair,
             daysOut: Math.max(0, game.daysOut ?? 14),
-            supply: latestSupply.get(game.date) ?? 6,
             curve,
           });
     const guarded = offersNearTip(raw, game.instantOffer?.total ?? null, game.daysOut ?? 99);
@@ -723,6 +755,15 @@ function assembleTrends(input: {
     if (!chosen) continue;
     game.projection = { ...game.projection, suggestion: suggestionFromOffer(chosen) };
   }
+  for (const game of games) {
+    const offer = modelAskFor(game, outlook);
+    if (!offer) continue;
+    game.ask = offer.ask;
+    game.askChance = offer.chance;
+    game.askExpected = offer.expected;
+    game.keep = keepFromTypeIn(offer.ask);
+    game.pair = pairFromTypeIn(offer.ask);
+  }
 
   games.sort((a, b) => a.date.localeCompare(b.date) || a.opponent.localeCompare(b.opponent));
 
@@ -739,7 +780,6 @@ function assembleTrends(input: {
   }
 
   return {
-    report: {
       today: input.today,
       section: input.section ?? "107",
       row: input.row ?? "P",
@@ -755,8 +795,6 @@ function assembleTrends(input: {
       modelNote: modelExplainer(),
       early: fit.ok ? fit.early : true,
       outlook,
-    },
-    market,
   };
 }
 
@@ -818,17 +856,3 @@ function buildCompSnaps(pulls: readonly TrendPull[], listings: readonly TrendLis
   return snaps;
 }
 
-function contextualSales(sales: readonly ProbableSale[], snaps: readonly CompSnap[]): ProbableSale[] {
-  const at = new Map<string, CompSnap>();
-  for (const snap of snaps) {
-    if (snap.median == null) continue;
-    const key = `${snap.gameDate}|${snap.etDate}`;
-    if (!at.has(key)) at.set(key, snap);
-  }
-  return sales.map((sale) => {
-    if (sale.median != null && sale.median > 0) return sale;
-    const snap = at.get(`${sale.gameDate}|${sale.goneDate}`) ?? at.get(`${sale.gameDate}|${sale.seenDate}`);
-    if (!snap?.median) return sale;
-    return { ...sale, median: snap.median, supply: sale.supply ?? snap.supply };
-  });
-}
