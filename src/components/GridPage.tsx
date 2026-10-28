@@ -120,6 +120,17 @@ function PointValue({
   );
 }
 
+/** Value that shows its exact pull and source when tapped. */
+function TapValue({ point, metric, keep, onPick }: { point: GridPoint; metric: Metric; keep: boolean; onPick: (caption: string) => void }) {
+  const caption = pointCaption(point);
+  return (
+    <button type="button" className="text-left" title={caption} aria-label={`${valueText(point, metric)}, ${caption}`} onClick={() => onPick(caption)}>
+      <span className="font-medium tabular-nums">{valueText(point, metric)}</span>
+      {keep && metric.kind === "price" ? <span className="block text-sm tabular-nums text-muted-foreground">keep {money(pairFromTypeIn(point.value))}</span> : null}
+    </button>
+  );
+}
+
 /** Phone: one card per game for the chosen day. */
 function GameDayCard({
   game,
@@ -137,6 +148,8 @@ function GameDayCard({
   onPick: (caption: string) => void;
 }) {
   const cell = game.cells[day];
+  const times = metrics.map((metric) => cell?.[metric.id]?.pulledAt).filter((at): at is string => Boolean(at)).sort();
+  const latest = times[times.length - 1];
   return (
     <Card className="gap-3 px-4 py-4">
       <div>
@@ -145,7 +158,10 @@ function GameDayCard({
             {game.opponent}
           </a>
         </h2>
-        <p className="text-sm text-muted-foreground">{formatGameDate(game.date, game.weekday)}</p>
+        <p className="text-sm text-muted-foreground">
+          {formatGameDate(game.date, game.weekday)}
+          {latest ? ` · pulled ${formatEtClock(latest)}` : ""}
+        </p>
       </div>
       <dl className="grid grid-cols-2 gap-3">
         {metrics.map((metric) => {
@@ -157,7 +173,7 @@ function GameDayCard({
                 {metric.label}
               </dt>
               <dd className="text-base">
-                {point ? <PointValue point={point} metric={metric} keep={keep} onPick={onPick} /> : <span className="text-muted-foreground">—</span>}
+                {point ? <TapValue point={point} metric={metric} keep={keep} onPick={onPick} /> : <span className="text-muted-foreground">—</span>}
               </dd>
             </div>
           );
@@ -365,7 +381,7 @@ export function GridPage() {
         <p>
           Each price is the per-seat number to type in, and you keep it × 2 × {SELLER_KEEP_RATE} for both seats after the{" "}
           {Math.round((1 - SELLER_KEEP_RATE) * 100)}% fee. The dot or tint is green under 24 hours old, amber under 72 and red
-          when older, and a dash means no pull that day. Tap a time to see the exact pull and its source.
+          when older, and a dash means no pull that day. Tap a price on a phone, or a time on a computer, to see the exact pull and its source.
         </p>
       </HowThisWorks>
     </PageShell>
