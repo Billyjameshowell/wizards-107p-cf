@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Book } from "@shared/book";
 import { GridPage } from "./components/GridPage.tsx";
+import { Loading, Message } from "./components/kit.tsx";
 import { TicketBook } from "./components/TicketBook.tsx";
 import { TrendsPage } from "./components/TrendsPage.tsx";
 
@@ -15,19 +16,8 @@ export default function App() {
   const kind = pageKind();
   if (kind === "grid") return <GridPage />;
   if (kind === "trends") return <TrendsPage />;
-  if (kind === "missing") return <NotFound />;
+  if (kind === "missing") return <Message title="This page isn't part of Wizards 107P" link={{ href: "/", label: "Go to the book" }} />;
   return <BookApp />;
-}
-
-function NotFound() {
-  return (
-    <div className="mx-auto max-w-xl px-4 py-16 text-center">
-      <h1 className="font-heading text-2xl text-navy">This page isn't part of Wizards 107P</h1>
-      <a href="/" className="mt-4 inline-flex min-h-11 items-center font-semibold text-navy underline">
-        Go to the book
-      </a>
-    </div>
-  );
 }
 
 function BookApp() {
@@ -52,35 +42,7 @@ function BookApp() {
     };
   }, []);
 
-  if (error) {
-    return (
-      <div className="mx-auto max-w-xl px-4 py-16 text-center">
-        <h1 className="font-heading text-2xl text-navy">Wizards 107P</h1>
-        <p className="mt-3 text-muted-foreground">{error}</p>
-      </div>
-    );
-  }
-
-  if (!book) {
-    return (
-      <div
-        className="mx-auto max-w-[1180px] px-3 pt-4 sm:px-4 sm:pt-5"
-        aria-busy="true"
-        aria-live="polite"
-      >
-        <p className="sr-only">Opening the book</p>
-        <div className="h-32 animate-pulse rounded-2xl bg-navy/90" />
-        <div className="mt-3 h-16 animate-pulse rounded-xl bg-white ring-1 ring-line" />
-        <div className="mt-4 space-y-3 lg:hidden">
-          <div className="h-44 animate-pulse rounded-2xl bg-white ring-1 ring-line" />
-          <div className="h-44 animate-pulse rounded-2xl bg-white ring-1 ring-line" />
-          <div className="h-44 animate-pulse rounded-2xl bg-white ring-1 ring-line" />
-        </div>
-        <div className="mt-4 hidden h-[420px] animate-pulse rounded-xl bg-white ring-1 ring-line lg:block" />
-        <p className="mt-4 text-center text-sm text-muted-foreground">Opening the book…</p>
-      </div>
-    );
-  }
-
+  if (error) return <Message title="Wizards 107P" body={error} />;
+  if (!book) return <Loading label="Opening the book" />;
   return <TicketBook book={book} repoStatus={{}} />;
 }

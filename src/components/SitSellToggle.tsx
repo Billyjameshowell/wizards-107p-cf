@@ -26,7 +26,7 @@ export function SitSellToggle({
         if (next === "Sit" || next === "Sell") onChange(next);
       }}
       aria-label={`Sit or sell for ${opponent}`}
-      className={cn("grid w-full grid-cols-2 bg-white", className)}
+      className={cn("grid w-full grid-cols-2 bg-card", className)}
     >
       {CHOICES.map((choice) => (
         <ToggleGroupItem
@@ -34,7 +34,7 @@ export function SitSellToggle({
           value={choice}
           aria-label={`${choice} ${opponent}`}
           className={cn(
-            "h-11 w-full border-[#c4bbaa] font-bold text-[#243044] lg:h-8",
+            "h-10 w-full font-medium text-foreground",
             choice === "Sit"
               ? "data-[state=on]:bg-sit-ink data-[state=on]:text-white"
               : "data-[state=on]:bg-sell-ink data-[state=on]:text-white",
