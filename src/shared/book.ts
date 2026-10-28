@@ -8,6 +8,12 @@ export type Game = {
   type: string;
   sit_or_sell: SitOrSell | string;
   advised_ask: number | null;
+  /** The price model's per-seat ask (single source for every suggested price). Set when the book is served. */
+  model_ask?: number | null;
+  /** Chance the pair sells before tip at model_ask. */
+  model_sale_chance?: number | null;
+  /** Expected pair cash after the fee at model_ask. */
+  model_expected?: number | null;
   /** Pair cash is computed in the browser from the type-in he is using. */
   cash_both_after_fee: number | null;
   /**

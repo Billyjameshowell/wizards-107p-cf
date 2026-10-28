@@ -26,53 +26,19 @@ import { compHistoryNote, type CompConfidence } from "./price-history";
  * seller fee. It does not invent a buyer markup.
  *
  * The middle is the blended SeatData band, not the arena median. Recent checks
- * count more. A thin morning stays near those recent prices. A busy morning
- * follows the live middle. The day rules below still apply to that blended
- * middle. A number he typed is still never replaced.
+ * count more. It is shown next to the ask for context.
  *
- * Suggestion vs that listed middle (the type-in, before the 5% fee):
- * - Default is the middle itself. Do not start under it.
- * - Above it only when the game is marked bigger AND tip is still more than
- *   three weeks out (22+ days). The step is 10%, the modest end of the
- *   10–20% broker range.
- * - Under it only when the game is marked softer AND tip is today through
- *   14 days out (inside about two weeks, which includes a few days). The
- *   step is 5%.
- * - Standard games, and any game that is not marked, stay on the middle.
- *   That includes the active window from about three weeks out (21 days)
- *   through about one week out (7 days).
- * - A past game stays on the middle.
- * - What he paid for the season does not move the suggestion. $6,000 is only
- *   the running cash goal.
- * - There is no view count on the book, so quiet interest does not cut the
- *   price. He can type his own number when he needs the seats to move.
- *
- * Rounding the suggestion (not a number he typed himself):
- * the number to type is the nearest whole dollar ending in 0 or 5
- * ($150, $175, $200). Halves round up ($177.50 → $180). No cents and no
- * .99 prices. A dollar ending in 9 ($199, not $149 in place of $150) is
- * used only when that 9 has a smaller first digit than the unrounded
- * middle, and the 0-ending price does not already sit on a smaller first
- * digit. So a middle of $200 becomes type $199, and a middle of $150 stays
- * $150. You-keep is then exactly 95% of that dollar, to the cent.
- * If this rounding would erase a required step above or below the middle,
- * move one more $5 so the step still shows.
+ * The suggested type-in is the price model's ask (src/shared/price-model.ts,
+ * built by the daily trends step from the comps archive): the ask with the most
+ * expected cash after the sale chance, leaned once toward the season goal. The
+ * book, the trends page and the grid all read that one ask. A number he typed is
+ * still never replaced.
  *
  * A saved type-in is any whole dollar he chose. It is never passed through
  * this rounding, and it is never replaced when days or comps change.
  */
 
-/** More than three weeks out. */
-export const FAR_OUT_MIN_DAYS = 22;
-/** Inside about two weeks, including a few days and tip day. */
-export const SOFT_WINDOW_MAX_DAYS = 14;
-/** Modest end of the 10–20% “bigger game, still far out” step. */
-export const BIGGER_PREMIUM_RATE = 0.1;
-/** Small step under the middle. Not a dump. */
-export const SOFT_STEP_RATE = 0.05;
-
 export type Demand = "bigger" | "soft" | "standard";
-export type Stance = "above" | "below" | "at";
 
 export type CompMedian = {
   median: number | null;
@@ -80,14 +46,24 @@ export type CompMedian = {
   excludedDump: boolean;
 };
 
+/** The price model's ask for one game, as the trends step saved it. */
+export type ModelAsk = {
+  ask: number;
+  /** Chance it sells before tip at that ask. */
+  chance: number | null;
+  /** Expected pair cash after the fee at that ask. */
+  expected: number | null;
+};
+
 export type Suggestion = {
   typeIn: number;
   keep: number;
   pair: number;
-  listedMedian: number;
+  /** The blended comp middle, for context. Null before the first comps. */
+  listedMedian: number | null;
   compCount: number | null;
   excludedDump: boolean;
-  stance: Stance;
+  saleChance: number | null;
   label: string;
   daysOut: number | null;
   /** This morning had no usable comps. The middle is from recent checks. */
@@ -110,59 +86,6 @@ export type SeatPriceView = {
 /** Nearest whole dollar. Halves round up for positive prices. */
 export function roundDollar(value: number): number {
   return Math.round(value);
-}
-
-function leadingDigit(value: number): { digit: number; places: number } {
-  const whole = Math.max(0, Math.floor(Math.abs(value)));
-  const text = String(whole);
-  return { digit: Number(text[0] ?? "0"), places: text.length };
-}
-
-/** True when `nine` shows a smaller first digit than the unrounded middle. */
-function dropsFirstDigit(nine: number, unroundedMedian: number): boolean {
-  const low = leadingDigit(nine);
-  const middle = leadingDigit(unroundedMedian);
-  if (low.places < middle.places) return true;
-  if (low.places > middle.places) return false;
-  return low.digit < middle.digit;
-}
-
-function firstDigitAtLeast(price: number, unroundedMedian: number): boolean {
-  const typed = leadingDigit(price);
-  const middle = leadingDigit(unroundedMedian);
-  if (typed.places > middle.places) return true;
-  if (typed.places < middle.places) return false;
-  return typed.digit >= middle.digit;
-}
-
-/**
- * Suggested “Set Your Price” dollar. Ends in 0 or 5, except a 9 when that
- * 9 drops the first digit versus the unrounded middle ($199 instead of $200).
- * `raw` is the middle after any bigger/softer step. The first-digit check
- * always uses the unrounded middle, not the stepped figure.
- */
-export function roundSuggestedTypeIn(raw: number, unroundedMedian: number): number {
-  const five = Math.round(raw / 5) * 5;
-  if (five >= 1 && five % 10 === 0) {
-    const nine = five - 1;
-    if (
-      nine >= 1 &&
-      dropsFirstDigit(nine, unroundedMedian) &&
-      firstDigitAtLeast(five, unroundedMedian)
-    ) {
-      return nine;
-    }
-  }
-  return Math.max(1, five);
-}
-
-function nextEnding(price: number, direction: 1 | -1): number {
-  if (direction > 0) {
-    const up = Math.floor(price / 5) * 5 + 5;
-    return up > price ? up : price + 5;
-  }
-  const down = Math.ceil(price / 5) * 5 - 5;
-  return down < price ? down : price - 5;
 }
 
 export function etYmd(now: Date): string {
@@ -242,66 +165,6 @@ export function seriousCompMedian(listings: CompListing[]): CompMedian {
     median: middle == null ? null : roundMoney(middle),
     count: prices.length,
     excludedDump,
-  };
-}
-
-function stanceLabel(stance: Stance, demand: Demand | null, daysOut: number | null): string {
-  if (stance === "above") return "The ask is about 10% over the middle because this big game is 3+ weeks out.";
-  if (stance === "below") return "The ask is about 5% under the middle because this soft game is inside 2 weeks.";
-  const upcoming = daysOut != null && daysOut >= 0;
-  if (upcoming && demand === "bigger") return "The ask sits at the middle because this big game is inside 3 weeks.";
-  if (upcoming && demand === "soft") return "The ask sits at the middle because this soft game is still 2+ weeks out.";
-  return "The ask sits at the middle of similar seats.";
-}
-
-export function suggestFromMedian(args: {
-  listedMedian: number;
-  daysOut: number | null;
-  demand: Demand | null;
-  compCount?: number | null;
-  excludedDump?: boolean;
-}): Suggestion {
-  const daysOut = args.daysOut;
-  let stance: Stance = "at";
-  let factor = 1;
-  if (args.demand === "bigger" && daysOut != null && daysOut >= FAR_OUT_MIN_DAYS) {
-    stance = "above";
-    factor = 1 + BIGGER_PREMIUM_RATE;
-  } else if (
-    args.demand === "soft" &&
-    daysOut != null &&
-    daysOut >= 0 &&
-    daysOut <= SOFT_WINDOW_MAX_DAYS
-  ) {
-    stance = "below";
-    factor = 1 - SOFT_STEP_RATE;
-  }
-
-  const baseline = Math.max(1, roundSuggestedTypeIn(args.listedMedian, args.listedMedian));
-  let typeIn = Math.max(1, roundSuggestedTypeIn(args.listedMedian * factor, args.listedMedian));
-  if (stance === "above" && typeIn <= baseline) typeIn = nextEnding(baseline, 1);
-  if (stance === "below" && typeIn >= baseline) {
-    const stepped = nextEnding(baseline, -1);
-    if (stepped < 1) {
-      typeIn = baseline;
-      stance = "at";
-    } else {
-      typeIn = stepped;
-    }
-  }
-
-  return {
-    typeIn,
-    keep: keepFromTypeIn(typeIn),
-    pair: pairFromTypeIn(typeIn),
-    listedMedian: args.listedMedian,
-    compCount: args.compCount ?? null,
-    excludedDump: args.excludedDump === true,
-    stance,
-    label: stanceLabel(stance, args.demand, daysOut),
-    daysOut,
-    heldPrior: false,
-    historyNote: null,
   };
 }
 
@@ -411,42 +274,50 @@ export function demandOf(game: Game): Demand | null {
   );
 }
 
+function modelLabel(chance: number | null): string {
+  if (chance == null) return "Model ask.";
+  return `Model ask: about ${Math.round(chance * 100)}% chance the pair sells before tip.`;
+}
+
 export function resolveSeatPrice(args: {
+  modelAsk: ModelAsk | null;
   listedMedian: number | null;
   compCount: number | null;
   excludedDump: boolean;
   daysOut: number | null;
-  demand: Demand | null;
   savedTypeIn: number | null;
   pulls?: number | null;
   confidence?: CompConfidence | null;
   heldPrior?: boolean;
   snapshotMedian?: number | null;
 }): SeatPriceView {
-  const base =
-    args.listedMedian != null && args.listedMedian > 0
-      ? suggestFromMedian({
-          listedMedian: args.listedMedian,
-          daysOut: args.daysOut,
-          demand: args.demand,
+  const ask = args.modelAsk?.ask;
+  const heldPrior = args.heldPrior === true;
+  const suggestion: Suggestion | null =
+    ask != null && Number.isFinite(ask) && ask > 0
+      ? {
+          typeIn: Math.max(1, roundDollar(ask)),
+          keep: keepFromTypeIn(Math.max(1, roundDollar(ask))),
+          pair: pairFromTypeIn(Math.max(1, roundDollar(ask))),
+          listedMedian: args.listedMedian != null && args.listedMedian > 0 ? args.listedMedian : null,
           compCount: args.compCount,
           excludedDump: args.excludedDump,
-        })
-      : null;
-  const heldPrior = args.heldPrior === true;
-  const suggestion = base
-    ? {
-        ...base,
-        heldPrior,
-        historyNote: compHistoryNote({
-          pulls: args.pulls ?? 0,
-          confidence: args.confidence ?? null,
+          saleChance: args.modelAsk?.chance ?? null,
+          label: modelLabel(args.modelAsk?.chance ?? null),
+          daysOut: args.daysOut,
           heldPrior,
-          snapshotMedian: args.snapshotMedian ?? null,
-          blendedMedian: base.listedMedian,
-        }),
-      }
-    : null;
+          historyNote:
+            args.listedMedian != null && args.listedMedian > 0
+              ? compHistoryNote({
+                  pulls: args.pulls ?? 0,
+                  confidence: args.confidence ?? null,
+                  heldPrior,
+                  snapshotMedian: args.snapshotMedian ?? null,
+                  blendedMedian: args.listedMedian,
+                })
+              : null,
+        }
+      : null;
   const saved =
     args.savedTypeIn != null && Number.isFinite(args.savedTypeIn) && args.savedTypeIn > 0
       ? Math.max(1, roundDollar(args.savedTypeIn))
@@ -465,8 +336,17 @@ export function resolveSeatPrice(args: {
       ? null
       : args.excludedDump
         ? "Only a cheap 107P listing is up, so there is no middle yet."
-        : "No similar seats listed yet (107, 108, 118, 119, rows J–T).",
+        : args.listedMedian == null
+          ? "No similar seats listed yet (107, 108, 118, 119, rows J–T)."
+          : "The price model has no ask for this game yet.",
   };
+}
+
+/** The model ask the book carries for this game, if any. */
+export function modelAskOf(game: Game): ModelAsk | null {
+  const ask = game.model_ask;
+  if (typeof ask !== "number" || !Number.isFinite(ask) || ask <= 0) return null;
+  return { ask, chance: game.model_sale_chance ?? null, expected: game.model_expected ?? null };
 }
 
 export function seatPriceForGame(
@@ -475,11 +355,11 @@ export function seatPriceForGame(
   todayEt: string,
 ): SeatPriceView {
   return resolveSeatPrice({
+    modelAsk: modelAskOf(game),
     listedMedian: compMedianOf(game),
     compCount: compCountOf(game),
     excludedDump: excludedDumpOf(game),
     daysOut: daysUntil(game.date, todayEt),
-    demand: demandOf(game),
     savedTypeIn,
     pulls: compPullsOf(game),
     confidence: compConfidenceOf(game),

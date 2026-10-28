@@ -2,14 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Game } from "@shared/book";
 import { keepFromTypeIn, pairFromTypeIn } from "@shared/book";
 import { parsePriceOverrides } from "@/lib/price-overrides";
-import {
-  demandOf,
-  resolveSeatPrice,
-  roundSuggestedTypeIn,
-  seatPriceForGame,
-  seriousCompMedian,
-  suggestFromMedian,
-} from "@shared/pricing";
+import { demandOf, resolveSeatPrice, seatPriceForGame, seriousCompMedian } from "@shared/pricing";
 
 function game(partial: Partial<Game> & Record<string, unknown> = {}): Game {
   return {
@@ -30,97 +23,37 @@ function game(partial: Partial<Game> & Record<string, unknown> = {}): Game {
   } as Game;
 }
 
-describe("roundSuggestedTypeIn", () => {
-  it("rounds the suggested type-in to a whole dollar ending in 0 or 5", () => {
-    expect(roundSuggestedTypeIn(150, 150)).toBe(150);
-    expect(roundSuggestedTypeIn(175, 175)).toBe(175);
-    expect(roundSuggestedTypeIn(172, 172)).toBe(170);
-    expect(roundSuggestedTypeIn(173, 173)).toBe(175);
-    expect(roundSuggestedTypeIn(178, 178)).toBe(180);
-    expect(roundSuggestedTypeIn(177.5, 177.5)).toBe(180);
-    expect(String(roundSuggestedTypeIn(176.2, 176.2))).not.toMatch(/\.|99$/);
-  });
-
-  it("uses a 9 only when that drops the first digit versus the unrounded middle", () => {
-    expect(roundSuggestedTypeIn(200, 200)).toBe(199);
-    expect(roundSuggestedTypeIn(202, 202)).toBe(199);
-    expect(roundSuggestedTypeIn(100, 100)).toBe(99);
-    expect(roundSuggestedTypeIn(1000, 1000)).toBe(999);
-    expect(roundSuggestedTypeIn(500, 500)).toBe(499);
-    expect(roundSuggestedTypeIn(150, 150)).toBe(150);
-    expect(roundSuggestedTypeIn(148, 148)).toBe(150);
-    expect(roundSuggestedTypeIn(198, 198)).toBe(200);
-    expect(roundSuggestedTypeIn(250, 250)).toBe(250);
-    expect(roundSuggestedTypeIn(190, 200)).toBe(190);
-  });
-});
-
-describe("suggestFromMedian", () => {
-  it("stays on the middle for an unmarked game, including the active window", () => {
-    const suggestion = suggestFromMedian({
+describe("model ask", () => {
+  it("suggests the price model's ask, with its sale chance, and shows the comp middle beside it", () => {
+    const view = resolveSeatPrice({
+      modelAsk: { ask: 171, chance: 0.72, expected: 233.9 },
       listedMedian: 176,
+      compCount: 9,
+      excludedDump: false,
       daysOut: 13,
-      demand: null,
+      savedTypeIn: null,
     });
-    expect(suggestion.typeIn).toBe(175);
-    expect(suggestion.keep).toBe(keepFromTypeIn(175));
-    expect(suggestion.pair).toBe(pairFromTypeIn(175));
-    expect(suggestion.stance).toBe("at");
-    expect(suggestion.label).toContain("The ask sits at the middle of similar seats");
+    expect(view.suggestion?.typeIn).toBe(171);
+    expect(view.suggestion?.keep).toBe(keepFromTypeIn(171));
+    expect(view.suggestion?.pair).toBe(pairFromTypeIn(171));
+    expect(view.suggestion?.listedMedian).toBe(176);
+    expect(view.suggestion?.saleChance).toBe(0.72);
+    expect(view.suggestion?.label).toContain("72%");
+    expect(view.typeIn).toBe(171);
   });
 
-  it("sits about 10% above the middle on a bigger game more than three weeks out", () => {
-    const suggestion = suggestFromMedian({
-      listedMedian: 180,
-      daysOut: 30,
-      demand: "bigger",
+  it("has no suggestion when the model has no ask, even with comps", () => {
+    const view = resolveSeatPrice({
+      modelAsk: null,
+      listedMedian: 176,
+      compCount: 9,
+      excludedDump: false,
+      daysOut: 13,
+      savedTypeIn: null,
     });
-    expect(suggestion.typeIn).toBe(200);
-    expect(suggestion.stance).toBe("above");
-    expect(suggestion.label).toContain("10%");
-  });
-
-  it("keeps a bigger game on the middle once tip is inside three weeks", () => {
-    const suggestion = suggestFromMedian({
-      listedMedian: 180,
-      daysOut: 21,
-      demand: "bigger",
-    });
-    expect(suggestion.typeIn).toBe(180);
-    expect(suggestion.stance).toBe("at");
-  });
-
-  it("steps a softer game about 5% under the middle inside two weeks", () => {
-    const suggestion = suggestFromMedian({
-      listedMedian: 200,
-      daysOut: 14,
-      demand: "soft",
-    });
-    expect(suggestion.typeIn).toBe(190);
-    expect(suggestion.stance).toBe("below");
-    expect(suggestion.keep).toBe(180.5);
-    expect(suggestion.label).toContain("5%");
-  });
-
-  it("does not step a softer game down before the two-week window", () => {
-    const suggestion = suggestFromMedian({
-      listedMedian: 200,
-      daysOut: 15,
-      demand: "soft",
-    });
-    expect(suggestion.typeIn).toBe(199);
-    expect(suggestion.stance).toBe("at");
-  });
-
-  it("turns a middle of $200 into type $199 and you-keep of $189.05", () => {
-    const suggestion = suggestFromMedian({
-      listedMedian: 200,
-      daysOut: 10,
-      demand: "standard",
-    });
-    expect(suggestion.typeIn).toBe(199);
-    expect(suggestion.keep).toBe(189.05);
-    expect(suggestion.pair).toBe(378.1);
+    expect(view.suggestion).toBeNull();
+    expect(view.typeIn).toBeNull();
+    expect(view.emptyNote).toContain("no ask");
   });
 });
 
@@ -155,11 +88,11 @@ describe("serious comps", () => {
 describe("saved price", () => {
   it("keeps any whole dollar he typed and does not round it to 0 or 5", () => {
     const view = resolveSeatPrice({
+      modelAsk: { ask: 199, chance: 0.7, expected: 264.7 },
       listedMedian: 200,
       compCount: 6,
       excludedDump: true,
       daysOut: 10,
-      demand: null,
       savedTypeIn: 151,
     });
     expect(view.suggestion?.typeIn).toBe(199);
@@ -170,19 +103,19 @@ describe("saved price", () => {
 
   it("does not replace his number when the days or the middle change", () => {
     const far = resolveSeatPrice({
+      modelAsk: { ask: 180, chance: 0.7, expected: 239.4 },
       listedMedian: 180,
       compCount: 4,
       excludedDump: false,
       daysOut: 40,
-      demand: "bigger",
       savedTypeIn: 49,
     });
     const close = resolveSeatPrice({
+      modelAsk: { ask: 230, chance: 0.6, expected: 262.2 },
       listedMedian: 240,
       compCount: 8,
       excludedDump: false,
       daysOut: 3,
-      demand: "soft",
       savedTypeIn: 49,
     });
     expect(far.suggestion?.typeIn).not.toBe(49);
@@ -200,19 +133,21 @@ describe("saved price", () => {
     });
     expect(demandOf(row)).toBeNull();
     const view = resolveSeatPrice({
+      modelAsk: null,
       listedMedian: null,
       compCount: null,
       excludedDump: false,
       daysOut: 13,
-      demand: demandOf(row),
       savedTypeIn: null,
     });
     expect(view.suggestion).toBeNull();
     expect(view.typeIn).toBeNull();
   });
 
-  it("uses zone_median when the stored book has no comp_median", () => {
+  it("uses zone_median when the stored book has no comp_median, and the model ask for the price", () => {
     const stored = game({
+      model_ask: 158,
+      model_sale_chance: 0.7,
       date: "2026-10-23",
       weekday: "Fri",
       opponent: "Toronto Raptors",
@@ -228,11 +163,12 @@ describe("saved price", () => {
     const view = seatPriceForGame(stored, null, "2026-09-22");
     expect(view.suggestion?.listedMedian).toBe(161.11);
     expect(view.suggestion?.compCount).toBe(174);
-    expect(view.typeIn).toBe(160);
+    expect(view.typeIn).toBe(158);
     expect(view.pair).not.toBeNull();
 
     const withComp = game({
       date: "2026-10-23",
+      model_ask: 190,
       comp_median: 200,
       comp_count: 8,
       market_details: stored.market_details,

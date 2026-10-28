@@ -18,9 +18,7 @@ import {
   type PriceGrid,
   type SuggestedAskDraft,
 } from "@shared/grid";
-import { askOffers } from "@shared/price-model";
-import { daysUntil } from "@shared/pricing";
-import type { TrendListing, TrendPull, TrendsGameSeed } from "@shared/trends";
+import { buildTrendsReport, type TrendListing, type TrendPull, type TrendsGameSeed } from "@shared/trends";
 import { fillPullsFromArchive, GRID_CACHE_KEY, GRID_LISTING_SQL, GRID_PULL_SQL, gridResponse, refreshPriceGrid } from "../worker/grid";
 import { persistSuggestedAsks } from "../worker/suggested-asks";
 
@@ -151,7 +149,7 @@ describe("suggested ask snapshots", () => {
     const leaked = on(withFuture, games[0]!.date, "2026-10-06");
     const clean = on(without, games[0]!.date, "2026-10-06");
     expect(leaked?.origin).toBe("recomputed");
-    expect(leaked?.method).toBe("day-rules");
+    expect(leaked?.method).toBe("model");
     expect(leaked).toEqual(clean);
 
     const jumped = on(withFuture, games[0]!.date, "2026-10-13");
@@ -186,15 +184,20 @@ describe("suggested ask snapshots", () => {
       pulls: [pull({ id: 1, source: "seatdata", gameDate: game.date, etDate: "2026-10-01", median: 150, compCount: 6 })],
       listings: [],
     });
-    const daysOut = daysUntil(game.date, "2026-10-01");
-    const offers = askOffers({ predictedMedian: 150, daysOut: daysOut ?? 0, supply: 6 });
     expect(rows[0]).toMatchObject({
       origin: "recomputed",
-      method: "day-rules",
+      method: "model",
       source: "seatdata",
       etDate: "2026-10-01",
     });
-    void offers; // median rule now wins over the list model, matching the book
+    const report = buildTrendsReport({
+      today: "2026-10-01",
+      games: [game],
+      pulls: [pull({ id: 1, source: "seatdata", gameDate: game.date, etDate: "2026-10-01", median: 150, compCount: 6 })],
+      listings: [],
+    });
+    // The grid saves the same ask the trends page (and so the book) shows.
+    expect(rows[0]?.ask).toBe(report.games[0]?.ask);
   });
 });
 

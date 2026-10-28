@@ -628,7 +628,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
 
       <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Suggested ask" value={suggested} emphasis />
-        <Stat label="Your ask" value={formatMoney(game.ask)} />
+        <Stat label="Model ask" value={formatMoney(game.ask)} />
         <Stat label="You keep, both" value={formatMoney(game.pair)} />
         <Stat
           label="Instant offer"

@@ -6,7 +6,7 @@ import { loadLiveBook } from "./store";
 import { freshnessResponse } from "./freshness";
 import { instantOfferApiResponse, instantOfferFormResponse } from "./instant-offers";
 import { gridResponse } from "./grid";
-import { trendsResponse } from "./trends";
+import { loadModelAsks, trendsResponse } from "./trends";
 import { salesResponse } from "./sales";
 import { isStep, runStep, stepForCron } from "./schedule";
 import { latestTmReads, tmPortalResponse } from "./tm-portal";
@@ -35,8 +35,8 @@ export default {
 
     if (url.pathname === "/api/book" && request.method === "GET") {
       // Re-price on every read so keep amounts and days-out match today.
-      const [live, tm] = await Promise.all([loadLiveBook(env), latestTmReads(env)]);
-      const priced = priceBook(live, etDateFrom(new Date()));
+      const [live, tm, modelAsks] = await Promise.all([loadLiveBook(env), latestTmReads(env), loadModelAsks(env)]);
+      const priced = priceBook(live, etDateFrom(new Date()), modelAsks);
       const book = { ...priced, games: priced.games.map((g) => ({ ...g, tm_portal: tm[g.date] ?? null })) };
       return Response.json(book, { headers: { "Cache-Control": "no-store" } });
     }

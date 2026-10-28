@@ -12,7 +12,7 @@ import {
 } from "@shared/price-history";
 import { SEATDATA_PULL_USD, seatDataDailyCostUsd, seatDataSlateFitsDailyCap } from "@shared/guardrails";
 import { SEED_BOOK } from "../worker/store";
-import { resolveSeatPrice, seatPriceForGame, seriousCompMedian, suggestFromMedian } from "@shared/pricing";
+import { resolveSeatPrice, seatPriceForGame, seriousCompMedian } from "@shared/pricing";
 import { etDateFrom } from "@shared/guardrails";
 import { prioritizeDates } from "../worker/adapters/seatdata";
 import { mergeBook } from "../worker/ingest";
@@ -234,16 +234,15 @@ describe("lone cheap 107P", () => {
     expect(thinOutlier.median).not.toBe(50);
     expect(thinOutlier.median).toBeGreaterThan(140);
 
-    const suggestion = suggestFromMedian({
-      listedMedian: held.median ?? 0,
-      daysOut: 10,
-      demand: null,
+    const view = resolveSeatPrice({
+      modelAsk: { ask: 175, chance: 0.7, expected: 232.75 },
+      listedMedian: held.median,
       compCount: held.compCount,
       excludedDump: held.excludedDump,
+      daysOut: 10,
+      savedTypeIn: null,
     });
-    expect(suggestion.typeIn).not.toBe(40);
-    expect(suggestion.typeIn).not.toBe(50);
-    expect(suggestion.listedMedian).toBe(180);
+    expect(view.suggestion?.listedMedian).toBe(180);
   });
 });
 
@@ -430,15 +429,17 @@ describe("mergeBook", () => {
       new Map([
         ["2026-10-12", [obs(7, "2026-09-29", 200, 8)]],
       ]),
+      { "2026-10-12": { ask: 170, chance: 0.72, expected: 232.6 } },
     );
     const row = blended.games[0];
     expect(row?.comp_median).toBe(180);
     expect(row?.comp_snapshot_median).toBe(140);
     expect(row?.market_median).toBe(40);
     expect(row?.market_get_in).toBe(30);
-    // Keep per seat follows the blended band middle, not the arena median.
-    expect(row?.advised_ask).toBe(keepFromTypeIn(seatPriceForGame(row!, null, etDateFrom(NOW)).typeIn!));
-    expect(row?.cash_both_after_fee).toBe(pairFromTypeIn(seatPriceForGame(row!, null, etDateFrom(NOW)).typeIn!));
+    // Keep per seat is the model ask, not the arena median.
+    expect(row?.model_ask).toBe(170);
+    expect(row?.advised_ask).toBe(keepFromTypeIn(170));
+    expect(row?.cash_both_after_fee).toBe(pairFromTypeIn(170));
     expect(row?.notes).toBe("keep me");
     expect(row?.sit_or_sell).toBe("Sell");
     expect(row?.comp_checked_at).toBe(NOW.toISOString());
@@ -481,34 +482,14 @@ describe("mergeBook", () => {
   });
 });
 
-describe("suggestion still follows the day rules and a saved type-in", () => {
-  it("applies the far-out bigger-game step to the blended middle, not a thin spike", () => {
-    const blend = blendCompHistory(
-      [obs(7, "2026-09-29", 200, 8), obs(0, "2026-10-06", 100, 1)],
-      NOW,
-    );
-    expect(blend.median).toBe(180);
-    const steady = suggestFromMedian({
-      listedMedian: blend.median ?? 0,
-      daysOut: 30,
-      demand: "bigger",
-    });
-    const spike = suggestFromMedian({ listedMedian: 100, daysOut: 30, demand: "bigger" });
-    expect(steady.typeIn).toBe(200);
-    expect(steady.keep).toBe(keepFromTypeIn(200));
-    expect(steady.pair).toBe(pairFromTypeIn(200));
-    expect(steady.stance).toBe("above");
-    expect(spike.typeIn).not.toBe(steady.typeIn);
-    expect(steady.keep).toBe(190);
-  });
-
+describe("a saved type-in", () => {
   it("keeps a typed price when the blended middle and the days change", () => {
     const view = resolveSeatPrice({
+      modelAsk: { ask: 185, chance: 0.71, expected: 249.6 },
       listedMedian: 180,
       compCount: 6,
       excludedDump: false,
       daysOut: 30,
-      demand: "bigger",
       savedTypeIn: 49,
       pulls: 4,
       confidence: "solid",
@@ -517,7 +498,7 @@ describe("suggestion still follows the day rules and a saved type-in", () => {
     });
     expect(view.typeIn).toBe(49);
     expect(view.keep).toBe(46.55);
-    expect(view.suggestion?.typeIn).toBe(200);
+    expect(view.suggestion?.typeIn).toBe(185);
     expect(view.suggestion?.historyNote).toContain("follows the market");
     expect(view.usingOwn).toBe(true);
   });

@@ -31,14 +31,24 @@ function book(games: Game[]): Book {
 }
 
 describe("priceBook", () => {
-  it("replaces a stale stored ask with the keep from the newest comps", () => {
+  it("replaces a stale stored ask with the price model's ask", () => {
     const g = game({});
-    const out = priceBook(book([g]), "2026-10-10");
-    const view = seatPriceForGame(g, null, "2026-10-10");
-    expect(view.typeIn).toBe(215);
-    expect(out.games[0]?.advised_ask).toBe(view.keep);
-    expect(out.games[0]?.cash_both_after_fee).toBe(view.pair);
-    expect(out.games[0]?.advised_ask).not.toBe(87.13);
+    const asks = { "2026-10-21": { ask: 206, chance: 0.71, expected: 277.9 } };
+    const out = priceBook(book([g]), "2026-10-10", asks);
+    const priced = out.games[0]!;
+    const view = seatPriceForGame(priced, null, "2026-10-10");
+    expect(priced.model_ask).toBe(206);
+    expect(priced.model_sale_chance).toBe(0.71);
+    expect(view.typeIn).toBe(206);
+    expect(priced.advised_ask).toBe(view.keep);
+    expect(priced.cash_both_after_fee).toBe(view.pair);
+    expect(priced.advised_ask).not.toBe(87.13);
+  });
+
+  it("drops a model ask the trends step no longer has, and keeps the stored one when no asks are given", () => {
+    const g = game({ model_ask: 150, model_sale_chance: 0.7 });
+    expect(priceBook(book([g]), "2026-10-10", {}).games[0]?.advised_ask).toBeNull();
+    expect(priceBook(book([g]), "2026-10-10").games[0]?.advised_ask).toBe(142.5);
   });
 
   it("uses his live listing price for keep amounts", () => {
@@ -55,6 +65,10 @@ describe("priceBook", () => {
         game({ date: "2026-11-01", sit_or_sell: "Sit" }),
       ]),
       "2026-10-10",
+      {
+        "2026-10-21": { ask: 206, chance: 0.71, expected: 277.9 },
+        "2026-11-01": { ask: 120, chance: 0.7, expected: 159.6 },
+      },
     );
     expect(out.sell_book_cash).toBe(57);
     expect(out.vs_6k).toBe(-5943);

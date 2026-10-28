@@ -91,9 +91,15 @@ describe("buildTrendsReport", () => {
     expect(report.games[0]?.series).toEqual([
       { date: "2026-09-01", daysOut: 50, median: 120, cheapest: 100 },
     ]);
-    expect(report.games[0]?.ask).toBe(120);
-    expect(report.games[0]?.keep).toBe(114);
-    expect(report.games[0]?.pair).toBe(228);
+    // The ask is the price model's, priced off that 120 middle, with its sale chance.
+    const ask = report.games[0]?.ask ?? 0;
+    expect(ask).toBeGreaterThanOrEqual(84);
+    expect(ask).toBeLessThanOrEqual(180);
+    expect(report.games[0]?.ask).toBe(report.outlook.asks["2026-10-21"]?.ask);
+    expect(report.games[0]?.askChance).toBeGreaterThan(0);
+    expect(report.games[0]?.askChance).toBeLessThan(0.95);
+    expect(report.games[0]?.keep).toBe(Math.round(ask * 0.95 * 100) / 100);
+    expect(report.games[0]?.pair).toBe(Math.round(ask * 1.9 * 100) / 100);
   });
 
   it("does not treat arena-wide prices as similar seats", () => {

@@ -3,7 +3,6 @@ import type { Game } from "../../src/shared/book";
 
 export type MarketPoint = {
   date: string;
-  advisedAsk?: number | null;
   getIn?: number | null;
   median?: number | null;
   listingCount?: number | null;
