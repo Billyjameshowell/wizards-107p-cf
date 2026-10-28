@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptySpendState, type SpendState } from "@shared/guardrails";
 import type { Game } from "@shared/book";
-import { runSeatData, slimListingsPayload } from "../worker/adapters/seatdata";
+import { matchSeatDataEvents, runSeatData, slimListingsPayload } from "../worker/adapters/seatdata";
 
 function env(overrides: Record<string, string> = {}): Env {
   return {
@@ -102,6 +102,19 @@ describe("runSeatData", () => {
     expect(saved.map((spend) => spend.sources.seatdata.usdToday)).toEqual([0, 0.04, 0.08, 0.12]);
   });
 
+  it("names the games SeatData has no event for on the search row and spends nothing on them", async () => {
+    const calls = mockSeatData(1);
+    const withTbd = [...games, { date: "2026-12-04", opponent: "TBD (NBA Cup week)", sit_or_sell: "TBD" }] as unknown as Game[];
+    const out = await runSeatData(
+      { env: env(), games: withTbd, now: new Date("2026-10-08T21:00:00Z") },
+      emptySpendState("2026-10-08"),
+      "2026-10-08",
+    );
+    expect(calls.filter((url) => url.includes("/listings/get"))).toHaveLength(3);
+    expect(out.result.pulls).toBe(3);
+    expect(out.observations[0].note).toBe("event search; no SeatData event for 2026-12-04 TBD (NBA Cup week)");
+  });
+
   it("caps listing calls per run even when SeatData serves cached (unpaid) data", async () => {
     const calls = mockSeatData(0);
     const out = await runSeatData(
@@ -133,5 +146,69 @@ describe("runSeatData", () => {
     expect(out.result.pulls).toBe(0);
     expect(out.observations.some((row) => row.error === "day_spend_cap")).toBe(true);
     expect(out.spend.sources.seatdata.usdToday).toBe(1.98);
+  });
+});
+
+describe("matchSeatDataEvents", () => {
+  const ev = (id: number, date: string, name: string, venue = "Capital One Arena") => ({
+    event_id: id,
+    event_date: date,
+    event_name: name,
+    venue_name: venue,
+  });
+
+  it("matches a game to the home event on its date and skips packages and other venues", () => {
+    const out = matchSeatDataEvents(
+      [
+        { date: "2026-11-24", opponent: "Boston Celtics" },
+        { date: "2026-10-20", opponent: "Season" },
+        { date: "2027-01-21", opponent: "Denver Nuggets" },
+      ],
+      [
+        ev(1, "2026-11-24", "Boston Celtics at Washington Wizards - NBA Cup"),
+        ev(2, "2026-10-20", "2026-27 Washington Wizards Season Ticket Package (Includes Tickets for all Home Games)"),
+        ev(3, "2027-01-21", "Washington Wizards at Denver Nuggets", "Ball Arena"),
+      ],
+    );
+    expect([...out.matched.entries()].map(([date, event]) => [date, event.event_id])).toEqual([["2026-11-24", 1]]);
+    expect(out.unmatched.map((game) => game.date)).toEqual(["2026-10-20", "2027-01-21"]);
+  });
+
+  it("reports a TBD placeholder and a game SeatData does not list as unmatched", () => {
+    const out = matchSeatDataEvents(
+      [
+        { date: "2026-12-04", opponent: "TBD (NBA Cup week)" },
+        { date: "2026-12-12", opponent: "Charlotte Hornets" },
+        { date: "2027-03-06", opponent: "Utah Jazz" },
+      ],
+      [ev(10, "2026-12-12", "Charlotte Hornets at Washington Wizards")],
+    );
+    expect(out.matched.get("2026-12-12")?.event_id).toBe(10);
+    expect(out.unmatched).toEqual([
+      { date: "2026-12-04", opponent: "TBD (NBA Cup week)" },
+      { date: "2027-03-06", opponent: "Utah Jazz" },
+    ]);
+  });
+
+  it("gives a TBD placeholder the one unclaimed home event in its Cup week, never another game's", () => {
+    const games = [
+      { date: "2026-12-04", opponent: "TBD (NBA Cup week)" },
+      { date: "2026-12-12", opponent: "Charlotte Hornets" },
+    ];
+    const set = matchSeatDataEvents(games, [
+      ev(10, "2026-12-12", "Charlotte Hornets at Washington Wizards"),
+      ev(11, "2026-12-09", "Miami Heat at Washington Wizards"),
+    ]);
+    expect(set.matched.get("2026-12-04")?.event_id).toBe(11);
+    expect(set.unmatched).toEqual([]);
+
+    // Outside the week, or two candidates: do not guess.
+    const late = matchSeatDataEvents(games, [ev(12, "2026-12-11", "Miami Heat at Washington Wizards")]);
+    expect(late.matched.has("2026-12-04")).toBe(false);
+    const two = matchSeatDataEvents(games, [
+      ev(13, "2026-12-05", "Miami Heat at Washington Wizards"),
+      ev(14, "2026-12-09", "Utah Jazz at Washington Wizards"),
+    ]);
+    expect(two.matched.has("2026-12-04")).toBe(false);
   });
 });

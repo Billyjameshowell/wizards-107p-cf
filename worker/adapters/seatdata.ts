@@ -31,9 +31,80 @@ function homeEvent(event: SearchEvent): boolean {
   return venue.includes("capital one") || venue.includes("capital-one-arena");
 }
 
-function wizardsEvent(event: SearchEvent): boolean {
-  const name = `${event.event_name ?? ""} ${event.performer ?? ""}`.toLowerCase();
-  return name.includes("wizard");
+/** A Wizards home game ("X at Washington Wizards"), not a ticket package or another act. */
+function wizardsHomeGame(event: SearchEvent): boolean {
+  return / at washington wizards\b/i.test(event.event_name ?? "");
+}
+
+/** Book placeholder for a game the NBA has not set yet (e.g. "TBD (NBA Cup week)"). */
+function isPlaceholderOpponent(opponent: string | null | undefined): boolean {
+  return /^\s*tbd\b/i.test(opponent ?? "");
+}
+
+/**
+ * How many days after a placeholder's book date its real game can land. The NBA
+ * Cup quarterfinals are Dec 4-5 and the teams that miss the knockouts play their
+ * two make-up games Dec 6-10, so the TBD home game is somewhere in that week.
+ */
+export const PLACEHOLDER_WINDOW_DAYS = 6;
+
+function addDays(date: string, days: number): string {
+  const ms = Date.parse(`${date}T12:00:00Z`) + days * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+export type EventMatch = {
+  matched: Map<string, SearchEvent>;
+  unmatched: { date: string; opponent: string | null }[];
+};
+
+/**
+ * Match book games to SeatData events. A game matches the home event on its own
+ * date. A placeholder game ("TBD ...") has no fixed date or opponent, so it takes
+ * the one unclaimed home event in its window once the NBA sets it. Anything left is
+ * returned as unmatched so the run can say why it has no price.
+ */
+export function matchSeatDataEvents(
+  games: readonly { date: string; opponent?: string | null }[],
+  events: readonly SearchEvent[],
+): EventMatch {
+  const home = events.filter(
+    (event) => homeEvent(event) && wizardsHomeGame(event) && event.event_id && event.event_date,
+  );
+  const byDate = new Map<string, SearchEvent>();
+  for (const event of home) {
+    const date = event.event_date as string;
+    if (!byDate.has(date)) byDate.set(date, event);
+  }
+  const matched = new Map<string, SearchEvent>();
+  const claimed = new Set<number>();
+  const bookDates = new Set(games.map((game) => game.date));
+  for (const game of games) {
+    const event = byDate.get(game.date);
+    if (!event) continue;
+    matched.set(game.date, event);
+    claimed.add(event.event_id as number);
+  }
+  const unmatched: EventMatch["unmatched"] = [];
+  for (const game of games) {
+    if (matched.has(game.date)) continue;
+    if (isPlaceholderOpponent(game.opponent)) {
+      const last = addDays(game.date, PLACEHOLDER_WINDOW_DAYS);
+      const candidates = home.filter((event) => {
+        const date = event.event_date as string;
+        return (
+          !claimed.has(event.event_id as number) && !bookDates.has(date) && date >= game.date && date <= last
+        );
+      });
+      if (candidates.length === 1) {
+        matched.set(game.date, candidates[0]);
+        claimed.add(candidates[0].event_id as number);
+        continue;
+      }
+    }
+    unmatched.push({ date: game.date, opponent: game.opponent ?? null });
+  }
+  return { matched, unmatched };
 }
 
 /** Build a SeatData absolute URL. Base is origin only (e.g. https://seatdata.io). */
@@ -203,14 +274,17 @@ export async function runSeatData(
       listingCount: 0,
     },
   ];
-  const events = (payload.data ?? []).filter(
-    (event) => homeEvent(event) && wizardsEvent(event) && event.event_id && event.event_date,
+  const dates = prioritizeDates(ctx.games, ctx.now);
+  const { matched, unmatched } = matchSeatDataEvents(
+    dates.map((date) => ({ date, opponent: opponentFor(ctx, date) })),
+    payload.data ?? [],
   );
-  const byDate = new Map<string, SearchEvent>();
-  for (const event of events) {
-    if (event.event_date && !byDate.has(event.event_date)) {
-      byDate.set(event.event_date, event);
-    }
+  // A game SeatData does not list yet gets no pull (and no charge). Say which
+  // ones on the search row so a missing price is explained, not silent.
+  if (unmatched.length > 0) {
+    observations[0].note = `event search; no SeatData event for ${unmatched
+      .map((game) => `${game.date} ${game.opponent ?? "?"}`)
+      .join(", ")}`;
   }
 
   spend.sources.seatdata = recordPaidAttempt(spend.sources.seatdata, etDate);
@@ -223,10 +297,9 @@ export async function runSeatData(
   let runFetches = 0;
   const points: MarketPoint[] = [];
   const sales: ProbableSale[] = [];
-  const dates = prioritizeDates(ctx.games, ctx.now);
 
   for (const date of dates) {
-    const event = byDate.get(date);
+    const event = matched.get(date);
     // No event yet: leave the game at "No price yet" and do not spend a pull.
     // The next run that sees the event can fill it, because unchecked games go first.
     if (!event?.event_id) continue;
