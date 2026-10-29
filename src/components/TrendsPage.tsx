@@ -347,10 +347,10 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
               value={shift / 0.25}
               left="Prices will drop"
               right="Prices will rise"
-              label={`Similar seats about ${dollars(projection.price)} by tip, from ${dollars(projection.todayPrice)} today`}
+              label={`Similar seats should go for about ${dollars(projection.price)} by tip-off, compared with ${dollars(projection.todayPrice)} today`}
             />
             <p className="text-center text-sm text-muted-foreground">
-              About {dollars(projection.price)} by tip, from {dollars(projection.todayPrice)} today.
+              Similar seats should go for about {dollars(projection.price)} by tip-off, compared with {dollars(projection.todayPrice)} today.
             </p>
           </Card>
         ) : null}

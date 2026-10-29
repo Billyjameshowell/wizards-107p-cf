@@ -30,13 +30,6 @@ export function formatChance(probability: number): string {
   return `${Math.round(probability * 100)}%`;
 }
 
-export function formatShortfall(vs6k: number, seasonCost: number): string {
-  const target = `the ${formatMoney(seasonCost)} season cost`;
-  if (vs6k < 0) return `${formatMoney(Math.abs(vs6k))} short of ${target}`;
-  if (vs6k > 0) return `${formatMoney(vs6k)} over ${target}`;
-  return `Even with ${target}`;
-}
-
 export function formatGameDate(date: string, weekday: string): string {
   const parts = date.split("-");
   if (parts.length !== 3) return `${weekday} ${date}`;
@@ -44,8 +37,4 @@ export function formatGameDate(date: string, weekday: string): string {
   const day = Number(parts[2]);
   if (!month || !day) return `${weekday} ${date}`;
   return `${weekday} ${MONTHS[month - 1]} ${day}`;
-}
-
-export function formatYear(date: string): string {
-  return date.slice(0, 4);
 }

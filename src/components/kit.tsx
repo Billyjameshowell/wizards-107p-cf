@@ -66,7 +66,6 @@ export function PageShell({
         {subtitle || updatedAt !== undefined ? (
           <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
             {subtitle ? <span>{subtitle}</span> : null}
-            {subtitle && updatedAt !== undefined ? <span aria-hidden="true">·</span> : null}
             {updatedAt !== undefined ? <Updated at={updatedAt} /> : null}
           </p>
         ) : null}

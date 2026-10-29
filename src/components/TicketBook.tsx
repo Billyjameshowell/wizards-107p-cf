@@ -55,7 +55,7 @@ function wholeDollars(value: number): string {
 
 /** How the all-sell plan sits against the season cost, said once. */
 function planLine(sellCash: number, vs: number): string {
-  const plan = `About ${money(Math.round(sellCash))} if every Sell game sells`;
+  const plan = `Selling every Sell game would bring in about ${money(Math.round(sellCash))}`;
   if (vs > 0) return `${plan}, which covers it with ${money(vs)} to spare.`;
   if (vs < 0) return `${plan}, which leaves you ${money(Math.abs(vs))} short.`;
   return `${plan}, which covers it exactly.`;
