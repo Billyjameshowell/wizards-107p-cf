@@ -312,6 +312,22 @@ export async function startPull(
 
 type ApifyRunInfo = { status?: string; defaultDatasetId?: string; startedAt?: string; finishedAt?: string; stats?: { runTimeSecs?: number } };
 
+/**
+ * Dataset -> parsed listings. The first read omits `captured` (the page's own quickpicks
+ * responses, mostly duplicates of what pageFunction fetched) to keep JSON parse CPU low on
+ * the Workers Free plan; only an empty result re-reads the full items.
+ */
+async function readDataset(f: FetchLike, h: Record<string, string>, datasetId: string): Promise<ReturnType<typeof parseTmItems>> {
+  const read = async (extra: string) => {
+    const r = await f(`${API}/datasets/${datasetId}/items?clean=true&format=json${extra}`, { headers: h });
+    const items = r.ok ? ((await r.json()) as unknown) : [];
+    return parseTmItems(Array.isArray(items) ? items : []);
+  };
+  const lean = await read("&omit=captured");
+  if (lean.listings.length || lean.challenge) return lean;
+  return read("");
+}
+
 export async function finalizeAttempt(env: TmEnv, row: RunRow, f: FetchLike = fetch, now = new Date()): Promise<Record<string, unknown>> {
   const cfg = tmConfig(env);
   const h = { Authorization: `Bearer ${env.APIFY_TOKEN}` };
@@ -327,12 +343,7 @@ export async function finalizeAttempt(env: TmEnv, row: RunRow, f: FetchLike = fe
   if (Number((claim as { meta?: { changes?: number } }).meta?.changes ?? 1) === 0) return { run_id: row.run_id, attempt: row.attempt, status: "already_final" };
 
   const datasetId = run.defaultDatasetId ?? row.dataset_id;
-  let items: unknown[] = [];
-  if (datasetId) {
-    const ir = await f(`${API}/datasets/${datasetId}/items?clean=true&format=json`, { headers: h });
-    if (ir.ok) items = (await ir.json()) as unknown[];
-  }
-  const parsed = parseTmItems(Array.isArray(items) ? items : []);
+  const parsed = datasetId ? await readDataset(f, h, datasetId) : parseTmItems([]);
   const prev = row.event_id ? await lastGoodRaw(env, row.event_id) : null;
   let { status, detail } = classify(parsed.listings.length, parsed.challenge, prev);
   detail = [`apify=${run.status}`, detail, parsed.notes].filter(Boolean).join("; ");
@@ -364,9 +375,7 @@ export async function finalizeAttempt(env: TmEnv, row: RunRow, f: FetchLike = fe
   if (best && best.raw_listings) {
     let rows = target;
     if (best.id !== row.id && best.dataset_id) {
-      const br = await f(`${API}/datasets/${best.dataset_id}/items?clean=true&format=json`, { headers: h });
-      const bItems = br.ok ? ((await br.json()) as unknown[]) : [];
-      rows = parseTmItems(bItems).listings.map(annotate).filter(isTarget);
+      rows = (await readDataset(f, h, best.dataset_id)).listings.map(annotate).filter(isTarget);
     }
     out.written = await writeComps(env, ev, best, best.status, rows, now);
     out.kept_attempt = best.attempt;
