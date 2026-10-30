@@ -133,6 +133,30 @@ npx wrangler secret put APIFY_TOKEN
 
 To turn spend back off: edit `wrangler.jsonc` so `INGEST_ENABLED` is `"false"` or `DRY_RUN` is `"true"`, then redeploy.
 
+## Ticketmaster pair comps (tm_comps)
+
+`worker/tm-comps.ts` pulls Ticketmaster lower-bowl pair comps on Cloudflare, so nothing depends on the box being on. It uses the same spec, actor and input as the box scraper (`tm-scrape/scrape_tm.py`): `apify~playwright-scraper` on a US residential proxy, the `worker/tm/page_function.js` + `pre_nav_hook.js` pair, sections 100-127, rows N-T, 2+ seats, and the same side-of-arena tags. Parsing lives in `worker/tm-spec.ts`. A test checks it against the Python parser on the shared fixture.
+
+- **Schedule (ET):** 10:00 and 17:00 full pulls, every day, for every unsold home game in the next 45 days. 18:00 is a game-day pull for today's game only, skipped once tip-off is 15 minutes away. There is one cron, `0,30 14,15,21,22,23 * * *` (UTC). It lists both the EDT and EST hours, and the code reads the ET clock to pick the job. The `:30` ticks are sweeps.
+- **Flow:** the cron only starts Apify runs, each with an ad-hoc webhook to `POST /api/tm-comps/webhook` (signed with an HMAC of `CRON_SECRET`). The webhook handler does not trust the webhook body. It loads the run and its dataset from Apify and validates them: a challenge page or 0 listings is `blocked`, and fewer than 50% of the event's last good count is `partial`. On a good result it writes the target rows into D1 `tm_comps`. On a bad one it starts the next attempt on a fresh session pool, which means a fresh proxy IP, up to 3 attempts. After 3 bad attempts it keeps the attempt with the most listings. A `:30` sweep finishes any attempt whose webhook never arrived.
+- **Spend:** before a pull starts any run, it checks the Apify account's monthly usage (`/v2/users/me/limits`). If usage is at the hard limit, the pull writes one `account_limit` row to `tm_runs` and returns: no starts, no retries, no spend. A start refused with the hard-limit error stops the rest of that pull the same way. Each attempt passes `maxTotalChargeUsd` 0.40 and a 300 s / 2 GB limit, and reserves `TM_ATTEMPT_RESERVE_USD` until its measured cost (`usageTotalUsd` plus any per-event charges) is written to `tm_runs.cost_usd`. A pull stops starting attempts at `TM_MAX_USD_PER_PULL` ($1, also the hard cap in code). The ET day stops at `TM_MAX_USD_PER_ET_DAY` ($3, hard cap $5).
+- **Off switch:** set `TM_COMPS_ENABLED` to `"false"` and redeploy. The cron then does nothing.
+- **Dedupe:** the unique index is (event_id, listing_id, section, row, seats, captured_at_et), and inserts use `INSERT OR IGNORE`. The box sync uses the same key.
+- **Events:** `data/tm-home-events.json`, a copy of `wizards-tickets/tm-home-events.json`. Refresh it when the schedule changes.
+
+Admin endpoints (HTTP Basic, password `CRON_SECRET`, or that value as a Bearer token):
+
+```bash
+curl -u admin:$CRON_SECRET "https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/admin/tm-comps.csv?event=2026-11-04&since=2026-10-30"
+curl -u admin:$CRON_SECRET  https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/admin/tm-comps          # caps, spend today, cheapest 5 near 107 per game, last 30 attempts
+curl -u admin:$CRON_SECRET -X POST "https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/admin/tm-comps/run?event=2026-11-04"   # manual pull (kind=full|gameday or event=)
+curl -u admin:$CRON_SECRET -X POST  https://wizards-107p-cf.dfm7gb44c6.workers.dev/api/admin/tm-comps/sweep
+```
+
+`event` takes a date or a TM event id. `since` compares against `captured_at_et` (ISO with ET offset). The CSV has the box file's exact columns. On the box, `tm-scrape/sync_from_d1.py` appends new D1 rows to `tm-scrape/data/tm_comps.csv` and dedupes them on the same key.
+
+Migration: `migrations/0011_tm_comps.sql` (tables `tm_comps`, `tm_runs`).
+
 ## Data
 
 - Seed: `data/seed-book.json` (43 home games). Used when D1/KV are empty.
