@@ -139,7 +139,8 @@ describe("production wrangler vars", () => {
     expect(config).toContain('"SEATDATA_BASE_URL": "https://seatdata.io"');
     expect(config).not.toContain("api.seatdata.io");
     expect(config).toContain('"bucket_name": "wizards-107p-archive"');
-    expect(config).toContain('"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *"]');
+    // Four morning steps, then the Ticketmaster comps cron (worker/tm-comps.ts).
+    expect(config).toContain('"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *", "0,30 14,15,21,22,23 * * *"]');
   });
 });
 

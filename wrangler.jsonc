@@ -22,7 +22,10 @@
 	"upload_source_maps": true,
 	"triggers": {
 		// One step per invocation (worker/schedule.ts): ingest, refit, grid, trends.
-		"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *"]
+		// The fifth cron is Ticketmaster comps (worker/tm-comps.ts). It lists both the EDT and EST
+		// UTC hours; the code reads the ET clock: 10:00 and 17:00 full pulls, 18:00 game-day
+		// pull, :30 sweeps. TM_COMPS_ENABLED=false turns it off without a redeploy of crons.
+		"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *", "0,30 14,15,21,22,23 * * *"]
 	},
 	"vars": {
 		"INGEST_ENABLED": "true",
@@ -35,7 +38,15 @@
 		"APIFY_MAX_TOTAL_CHARGE_USD": "0.50",
 		"APIFY_MAX_EVENTS": "50",
 		"APIFY_ACTOR": "ahmed_jasarevic~seatgeek-scraper",
-		"APIFY_ACTOR_BUILD": ""
+		"APIFY_ACTOR_BUILD": "",
+		"TM_COMPS_ENABLED": "true",
+		"TM_WEBHOOK_BASE": "https://wizards-107p-cf.dfm7gb44c6.workers.dev",
+		"TM_MAX_USD_PER_PULL": "1.00",
+		"TM_MAX_USD_PER_ET_DAY": "3.00",
+		"TM_ATTEMPT_RESERVE_USD": "0.08",
+		"TM_MAX_CHARGE_USD_PER_RUN": "0.40",
+		"TM_DAYS_AHEAD": "45",
+		"TM_MAX_EVENTS_PER_PULL": "20"
 	},
 	"d1_databases": [
 		{
