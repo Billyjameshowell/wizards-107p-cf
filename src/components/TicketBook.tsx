@@ -1,16 +1,20 @@
 import { useMemo, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, SearchIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { Button } from "@ui-sdk/react/button";
+import { Checkbox, CheckboxIndicator } from "@ui-sdk/react/checkbox";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
+import { Progress, ProgressIndicator, ProgressTrack } from "@ui-sdk/react/progress";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatChance, formatGameDate } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
+import { ConfirmButton, GameSearch, NamedLink, OptionSelect, SortDirection, textButtonClass } from "@/components/controls";
 import { SeatPrice } from "@/components/SeatPrice";
 import { SitSellToggle } from "@/components/SitSellToggle";
 import { BigNumber, Disclosure, Fact, HowThisWorks, PageShell, Updated } from "@/components/kit";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { readPriceOverrides, writePriceOverrides, type PriceOverrideMap } from "@/lib/price-overrides";
-import { DEFAULT_GAME_SORT, SORT_COLUMNS, sortGameRows, type GameSort, type SortKey } from "@/lib/sort-games";
+import { DEFAULT_GAME_SORT, SORT_COLUMNS, sortGameRows, type GameSort } from "@/lib/sort-games";
 import { buildingPrices } from "@/lib/building-prices";
 import {
   readScenario,
@@ -24,12 +28,7 @@ import {
 import { buildExportMap, mergeGameStatus, readLocalStatus, writeLocalStatus } from "@/lib/status";
 import { gameMatchesQuery } from "@/lib/game-search";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
-import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { money } from "@/lib/money";
 
 type BookFilter = FilterId | "upcoming";
@@ -102,7 +101,11 @@ function StatusBadge({ status }: { status: ListingOverride }) {
 function StatusCheck({ label, name, checked, onChange }: { label: string; name: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-      <Checkbox checked={checked} onCheckedChange={(next) => onChange(next === true)} aria-label={`${label} ${name}`} />
+      <Checkbox checked={checked} onCheckedChange={(next) => onChange(next === true)} aria-label={`${label} for ${name}`}>
+        <CheckboxIndicator>
+          <CheckIcon aria-hidden="true" className="size-3.5" />
+        </CheckboxIndicator>
+      </Checkbox>
       {label}
     </label>
   );
@@ -157,12 +160,13 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
           ) : (
             <SitSellToggle className="w-36" value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} />
           )}
-          <CollapsibleTrigger className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-navy">
+          <CollapsibleTrigger className="inline-flex min-h-11 items-center gap-1 rounded-md text-sm font-medium text-navy">
             Details
-            <ChevronDownIcon aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-data-[state=open]/details:rotate-180" />
+            <span className="sr-only"> for {game.opponent}</span>
+            <ChevronDownIcon aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-data-open/details:rotate-180" />
           </CollapsibleTrigger>
         </div>
-        <CollapsibleContent>
+        <CollapsiblePanel keepMounted>
           <div className="space-y-4 pt-3">
             {status.sold || past ? null : (
               <SeatPrice opponent={game.opponent} view={view} onTypeIn={on.onTypeIn} onClear={on.onClearPrice} />
@@ -194,7 +198,7 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
               </span>
             </div>
           </div>
-        </CollapsibleContent>
+        </CollapsiblePanel>
       </Collapsible>
     </Card>
   );
@@ -352,7 +356,11 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
     >
       <Card className="gap-3 px-4 py-4">
         <BigNumber label="In so far" value={money(banked)} unit={`of the ${wholeDollars(book.season_cost)} season cost`} />
-        <Progress value={progress} aria-label="Cash in toward the season cost" className="h-2" />
+        <Progress value={progress} aria-label="Cash in toward the season cost">
+          <ProgressTrack>
+            <ProgressIndicator />
+          </ProgressTrack>
+        </Progress>
         {summary.sellCash > 0 ? (
           <p className="text-sm text-muted-foreground">
             {planLine(summary.sellCash, summary.vsSeason)}
@@ -361,63 +369,26 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
       </Card>
 
       <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-        <div role="search" className="min-w-0 flex-1">
-          <InputGroup className="h-11 bg-card">
-            <InputGroupAddon align="inline-start">
-              <SearchIcon />
-            </InputGroupAddon>
-            <InputGroupInput
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search team or date"
-              aria-label="Search games"
-              className="text-base [&::-webkit-search-cancel-button]:hidden"
-            />
-            {query ? (
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton aria-label="Clear search" size="icon-sm" onClick={() => setQuery("")}>
-                  <XIcon />
-                </InputGroupButton>
-              </InputGroupAddon>
-            ) : null}
-          </InputGroup>
-        </div>
+        <GameSearch value={query} onValueChange={setQuery} />
         <div className="flex gap-2">
-          <Select value={filter} onValueChange={(value) => setFilter(value as BookFilter)}>
-            <SelectTrigger aria-label="Which games" className="h-11 flex-1 bg-card sm:w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FILTERS.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.label} ({rows.filter((row) => matchesFilter(row, item.id, todayEt)).length})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={sort.key} onValueChange={(key) => setSort({ key: key as SortKey, direction: "asc" })}>
-            <SelectTrigger aria-label="Sort games" className="h-11 flex-1 bg-card sm:w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORTS.map((column) => (
-                <SelectItem key={column.key} value={column.key}>
-                  {column.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="size-11 bg-card"
-            aria-label={sort.direction === "asc" ? "Sorted ascending, switch to descending" : "Sorted descending, switch to ascending"}
-            onClick={() => setSort({ ...sort, direction: sort.direction === "asc" ? "desc" : "asc" })}
-          >
-            {sort.direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />}
-          </Button>
+          <OptionSelect
+            label="Which games"
+            value={filter}
+            onValueChange={setFilter}
+            className="flex-1 sm:w-44 sm:flex-none"
+            options={FILTERS.map((item) => ({
+              value: item.id,
+              label: `${item.label} (${rows.filter((row) => matchesFilter(row, item.id, todayEt)).length})`,
+            }))}
+          />
+          <OptionSelect
+            label="Sort games"
+            value={sort.key}
+            onValueChange={(key) => setSort({ key, direction: "asc" })}
+            className="flex-1 sm:w-36 sm:flex-none"
+            options={SORTS.map((column) => ({ value: column.key, label: column.label }))}
+          />
+          <SortDirection direction={sort.direction} onChange={(direction) => setSort({ ...sort, direction })} />
         </div>
       </div>
 
@@ -441,18 +412,25 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
       <Card className="mt-3 gap-0 px-4 py-1">
         <Disclosure title="Book tools">
         <div className="flex flex-wrap gap-2 pb-4">
-          <Button type="button" size="sm" variant="outline" className="h-9" onClick={copyStatus}>
+          <Button type="button" className={textButtonClass} onClick={copyStatus}>
             {copyLabel}
           </Button>
-          <Button type="button" size="sm" variant="outline" className="h-9" onClick={clearLocal}>
-            Clear listed and sold
-          </Button>
-          <Button type="button" size="sm" variant="outline" className="h-9" onClick={resetScenario} disabled={Object.keys(scenario).length === 0}>
-            Reset Sit and Sell
-          </Button>
-          <Button asChild size="sm" variant="outline" className="h-9">
-            <a href="/admin">Admin</a>
-          </Button>
+          <ConfirmButton
+            label="Clear listed and sold"
+            title="Clear listed and sold?"
+            description="Clears the listed and sold marks saved on this device. Prices stay."
+            confirm="Clear marks"
+            onConfirm={clearLocal}
+          />
+          <ConfirmButton
+            label="Reset Sit and Sell"
+            title="Reset Sit and Sell?"
+            description="Puts every game back to the book's Sit or Sell."
+            confirm="Reset choices"
+            disabled={Object.keys(scenario).length === 0}
+            onConfirm={resetScenario}
+          />
+          <NamedLink href="/admin">Admin</NamedLink>
         </div>
         </Disclosure>
       </Card>

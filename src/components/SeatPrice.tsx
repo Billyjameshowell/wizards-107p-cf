@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { Button } from "@ui-sdk/react/button";
+import { Field, FieldDescription, FieldLabel } from "@ui-sdk/react/field";
+import { Input, InputGroup } from "@ui-sdk/react/input";
 import type { SeatPriceView } from "@shared/pricing";
-import { Button } from "@/components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
+import { textButtonClass } from "@/components/controls";
 import { money } from "@/lib/money";
 
 function parseTypeIn(text: string): number | null {
@@ -17,10 +19,6 @@ function emptyReason(note: string | null): string {
   return "Similar lower-bowl seats aren't listed yet, so there is no price yet.";
 }
 
-/**
- * The per-seat number to type into Account Manager. It saves on blur or Enter,
- * never while typing, and an empty field goes back to the suggestion.
- */
 export function SeatPrice({
   opponent,
   view,
@@ -58,40 +56,46 @@ export function SeatPrice({
   }
 
   return (
-    <div className="space-y-2">
-      <label className="block">
-        <span className="text-sm text-muted-foreground">Your price per seat</span>
-        <InputGroup className="mt-1 h-11 bg-card">
-          <InputGroupAddon align="inline-start">
-            <InputGroupText>$</InputGroupText>
-          </InputGroupAddon>
-          <InputGroupInput
-            inputMode="numeric"
-            autoComplete="off"
-            enterKeyHint="done"
-            placeholder={suggestion ? String(suggestion.typeIn) : "No price yet"}
-            aria-label={`Price per seat to type into Account Manager for ${opponent}`}
-            className="text-base font-medium tabular-nums"
-            value={text}
-            onFocus={() => setFocused(true)}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
-            }}
-            onBlur={commit}
-          />
-        </InputGroup>
-      </label>
-      <p className="text-sm text-muted-foreground">
+    <Field className="flex flex-col gap-1">
+      <FieldLabel>
+        Your price per seat
+        <span className="sr-only"> for {opponent}</span>
+      </FieldLabel>
+      <InputGroup className="flex h-11 items-center gap-1 rounded-lg border border-input bg-card px-3">
+        <span aria-hidden="true" className="text-muted-foreground">
+          $
+        </span>
+        <Input
+          inputMode="numeric"
+          autoComplete="off"
+          enterKeyHint="done"
+          placeholder={suggestion ? String(suggestion.typeIn) : "No price yet"}
+          value={text}
+          onFocus={() => setFocused(true)}
+          onValueChange={(value, details) => {
+            if (value !== "" && !/^[\d$,.\s]*$/.test(value)) {
+              details.cancel();
+              return;
+            }
+            setText(value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+          onBlur={commit}
+          className="h-11 min-w-0 flex-1 text-base font-medium tabular-nums outline-none"
+        />
+      </InputGroup>
+      <FieldDescription>
         {view.typeIn == null
           ? emptyReason(view.emptyNote)
           : `You keep ${money(view.keep)} a seat and ${money(view.pair)} for the pair after the 5% fee.`}
-      </p>
+      </FieldDescription>
       {view.hasSaved ? (
-        <Button type="button" variant="outline" size="sm" className="h-9" onClick={onClear}>
+        <Button type="button" className={textButtonClass} onClick={onClear}>
           {suggestion ? `Use the suggested $${suggestion.typeIn}` : "Clear my price"}
         </Button>
       ) : null}
-    </div>
+    </Field>
   );
 }

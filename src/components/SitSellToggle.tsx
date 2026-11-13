@@ -1,10 +1,9 @@
 import type { ScenarioChoice } from "@/lib/scenario";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { SegmentedControl, SegmentedControlIndicator, SegmentedControlItem } from "@ui-sdk/react/segmented-control";
 import { cn } from "@/lib/utils";
 
 const CHOICES = ["Sit", "Sell"] as const;
 
-/** Sit / Sell picker for one game. Fills its container; the caller sets the width. */
 export function SitSellToggle({
   value,
   opponent,
@@ -16,33 +15,27 @@ export function SitSellToggle({
   onChange: (choice: ScenarioChoice) => void;
   className?: string;
 }) {
+  const selected = value === "Sit" || value === "Sell" ? value : null;
   return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      spacing={0}
-      value={value === "Sit" || value === "Sell" ? value : ""}
-      onValueChange={(next) => {
-        if (next === "Sit" || next === "Sell") onChange(next);
-      }}
+    <SegmentedControl
       aria-label={`Sit or sell for ${opponent}`}
-      className={cn("grid w-full grid-cols-2 bg-card", className)}
+      value={selected}
+      onValueChange={(next, details) => {
+        if (next !== "Sit" && next !== "Sell") {
+          details.cancel();
+          return;
+        }
+        onChange(next);
+      }}
+      className={cn("sit-sell grid-cols-2", className)}
     >
+      <SegmentedControlIndicator />
       {CHOICES.map((choice) => (
-        <ToggleGroupItem
-          key={choice}
-          value={choice}
-          aria-label={`${choice} ${opponent}`}
-          className={cn(
-            "h-10 w-full font-medium text-foreground",
-            choice === "Sit"
-              ? "data-[state=on]:bg-sit-ink data-[state=on]:text-white"
-              : "data-[state=on]:bg-sell-ink data-[state=on]:text-white",
-          )}
-        >
+        <SegmentedControlItem key={choice} value={choice} className={choice === "Sit" ? "is-sit" : "is-sell"}>
           {choice}
-        </ToggleGroupItem>
+          <span className="sr-only"> {opponent}</span>
+        </SegmentedControlItem>
       ))}
-    </ToggleGroup>
+    </SegmentedControl>
   );
 }
