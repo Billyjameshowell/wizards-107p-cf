@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
+import { Button } from "@ui-sdk/react/button";
 import { ChevronDownIcon } from "lucide-react";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/react/collapsible";
 import { freshness, type FreshTone } from "@shared/freshness";
 import { Card } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 /**
@@ -51,7 +52,7 @@ export function PageShell({
                 key={item.id}
                 href={item.href}
                 className={cn(
-                  "rounded-full px-3 py-1.5 text-sm font-medium hover:text-navy",
+                  "rounded-full px-3 py-1.5 text-sm font-medium hover:text-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy",
                   item.id === current ? "bg-navy/10 text-navy" : "text-muted-foreground",
                 )}
               >
@@ -179,11 +180,11 @@ export function Disclosure({
 }) {
   return (
     <Collapsible defaultOpen={defaultOpen} className={cn("group/disclosure", className)}>
-      <CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between gap-2 text-left text-sm font-medium text-navy">
+      <CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md text-left text-sm font-medium text-navy">
         {title}
-        <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/disclosure:rotate-180" />
+        <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-data-open/disclosure:rotate-180" />
       </CollapsibleTrigger>
-      <CollapsibleContent>{children}</CollapsibleContent>
+      <CollapsiblePanel>{children}</CollapsiblePanel>
     </Collapsible>
   );
 }
@@ -206,9 +207,12 @@ export function Message({ title, body, link }: { title: string; body?: string; l
       <h1 className="text-xl font-semibold text-navy">{title}</h1>
       {body ? <p className="mt-2 text-sm text-muted-foreground">{body}</p> : null}
       {link ? (
-        <a href={link.href} className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-navy underline underline-offset-4">
+        <Button
+          render={<a href={link.href} />}
+          className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-navy underline underline-offset-4"
+        >
           {link.label}
-        </a>
+        </Button>
       ) : null}
     </div>
   );

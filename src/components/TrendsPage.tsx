@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import { SegmentedControl, SegmentedControlIndicator, SegmentedControlItem } from "@ui-sdk/react/segmented-control";
 import { cashGamesFor, type TrendsGame, type TrendsReport } from "@shared/trends";
 import {
   keepingSentence,
@@ -16,11 +16,10 @@ import { formatDaysOut } from "@shared/pricing";
 import { readScenario, writeScenario, type ScenarioChoice, type ScenarioMap } from "@/lib/scenario";
 import { DaysOutChart, PriceTrendChart, Sparkline } from "@/components/TrendChart";
 import { BigNumber, Change, Disclosure, Fact, Gauge, HowThisWorks, Loading, Message, PageShell, Updated } from "@/components/kit";
+import { OptionSelect, SortDirection } from "@/components/controls";
 import { SitSellToggle } from "@/components/SitSellToggle";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { money } from "@/lib/money";
 
 type SortKey = "date" | "opponent" | "ask" | "median" | "change7d" | "changeSinceFirst" | "projection";
@@ -235,46 +234,40 @@ function SeasonView({ report }: { report: TrendsReport }) {
             {up} went up and {down} went down this week.
           </p>
         </div>
-        <div className="flex w-full gap-2 sm:w-auto">
-          <Select value={filter} onValueChange={(value) => setFilter(value as HistoryFilter)}>
-            <SelectTrigger aria-label="Which games" className="h-11 flex-1 bg-card sm:w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="upcoming">
-                Upcoming ({report.games.filter((game) => game.daysOut == null || game.daysOut >= 0).length})
-              </SelectItem>
-              <SelectItem value="history">Checked ({report.gamesWithChecks})</SelectItem>
-              <SelectItem value="all">All games ({report.games.length})</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={sort.key}
-            onValueChange={(key) =>
-              setSort({ key: key as SortKey, direction: key === "date" || key === "opponent" ? "asc" : "desc" })
-            }
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <SegmentedControl
+            aria-label="Which games"
+            value={filter}
+            onValueChange={(next, details) => {
+              if (next !== "upcoming" && next !== "history" && next !== "all") {
+                details.cancel();
+                return;
+              }
+              setFilter(next);
+            }}
+            className="grid-cols-3 sm:w-80"
           >
-            <SelectTrigger aria-label="Sort games" className="h-11 flex-1 bg-card sm:w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORTS.map((column) => (
-                <SelectItem key={column.key} value={column.key}>
-                  {column.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="size-11 bg-card"
-            aria-label={sort.direction === "asc" ? "Sorted ascending, switch to descending" : "Sorted descending, switch to ascending"}
-            onClick={() => setSort({ ...sort, direction: sort.direction === "asc" ? "desc" : "asc" })}
-          >
-            {sort.direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />}
-          </Button>
+            <SegmentedControlIndicator />
+            <SegmentedControlItem value="upcoming">
+              Upcoming <span className="tabular-nums opacity-80">{report.games.filter((game) => game.daysOut == null || game.daysOut >= 0).length}</span>
+            </SegmentedControlItem>
+            <SegmentedControlItem value="history">
+              Checked <span className="tabular-nums opacity-80">{report.gamesWithChecks}</span>
+            </SegmentedControlItem>
+            <SegmentedControlItem value="all">
+              All <span className="tabular-nums opacity-80">{report.games.length}</span>
+            </SegmentedControlItem>
+          </SegmentedControl>
+          <div className="flex gap-2">
+            <OptionSelect
+              label="Sort games"
+              value={sort.key}
+              onValueChange={(key) => setSort({ key, direction: key === "date" || key === "opponent" ? "asc" : "desc" })}
+              className="min-w-0 flex-1 sm:w-44 sm:flex-none"
+              options={SORTS.map((column) => ({ value: column.key, label: column.label }))}
+            />
+            <SortDirection direction={sort.direction} onChange={(direction) => setSort({ ...sort, direction })} />
+          </div>
         </div>
       </div>
 

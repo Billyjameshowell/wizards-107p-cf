@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { SearchIcon } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { CheckIcon } from "lucide-react";
+import { Button } from "@ui-sdk/react/button";
+import { Checkbox, CheckboxGroup, CheckboxIndicator } from "@ui-sdk/react/checkbox";
+import { Field, FieldLabel } from "@ui-sdk/react/field";
+import { Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from "@ui-sdk/react/popover";
+import { Switch, SwitchThumb } from "@ui-sdk/react/switch";
 import { pairFromTypeIn, SELLER_KEEP_RATE } from "@shared/book";
 import { formatGameDate } from "@shared/format";
 import { freshness, type FreshTone } from "@shared/freshness";
@@ -13,13 +18,10 @@ import {
   type GridPoint,
   type PriceGrid,
 } from "@shared/grid";
+import { GameSearch, OptionSelect, textButtonClass } from "@/components/controls";
 import { gameMatchesQuery } from "@/lib/game-search";
 import { Disclosure, HowThisWorks, Loading, Message, PageShell } from "@/components/kit";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { money } from "@/lib/money";
 
@@ -94,40 +96,40 @@ function pulledOn(game: GridGame, day: string): boolean {
   return cell != null && Object.values(cell).some(Boolean);
 }
 
-/** Price plus pull time; tapping the time shows the exact pull and source. */
-function PointValue({
-  point,
-  metric,
-  keep,
-  onPick,
-}: {
-  point: GridPoint;
-  metric: Metric;
-  keep: boolean;
-  onPick: (caption: string) => void;
-}) {
-  const caption = pointCaption(point);
+function PullPopover({ label, caption, children }: { label: string; caption: string; children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger aria-label={caption} className="rounded-sm text-left underline decoration-transparent underline-offset-2 hover:decoration-current">
+        {children}
+      </PopoverTrigger>
+      <PopoverContent>
+        <PopoverTitle>{label}</PopoverTitle>
+        <PopoverDescription>{caption}</PopoverDescription>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PointValue({ point, metric, keep, caption }: { point: GridPoint; metric: Metric; keep: boolean; caption: string }) {
   return (
     <>
       <span className="font-medium tabular-nums">{valueText(point, metric)}</span>
       {keep && metric.kind === "price" ? (
         <span className="block text-xs tabular-nums opacity-80">keep {money(pairFromTypeIn(point.value))}</span>
       ) : null}
-      <button type="button" className="block text-xs underline underline-offset-2 opacity-80" title={caption} aria-label={caption} onClick={() => onPick(caption)}>
-        {formatEtClock(point.pulledAt) || "time"}
-      </button>
+      <PullPopover label={metric.label} caption={caption}>
+        <span className="block text-xs underline underline-offset-2 opacity-80">{formatEtClock(point.pulledAt) || "time"}</span>
+      </PullPopover>
     </>
   );
 }
 
-/** Value that shows its exact pull and source when tapped. */
-function TapValue({ point, metric, keep, onPick }: { point: GridPoint; metric: Metric; keep: boolean; onPick: (caption: string) => void }) {
-  const caption = pointCaption(point);
+function TapValue({ point, metric, keep, caption }: { point: GridPoint; metric: Metric; keep: boolean; caption: string }) {
   return (
-    <button type="button" className="text-left" title={caption} aria-label={`${valueText(point, metric)}, ${caption}`} onClick={() => onPick(caption)}>
+    <PullPopover label={metric.label} caption={`${valueText(point, metric)}. ${caption}`}>
       <span className="font-medium tabular-nums">{valueText(point, metric)}</span>
       {keep && metric.kind === "price" ? <span className="block text-sm tabular-nums text-muted-foreground">keep {money(pairFromTypeIn(point.value))}</span> : null}
-    </button>
+    </PullPopover>
   );
 }
 
@@ -138,14 +140,12 @@ function GameDayCard({
   metrics,
   keep,
   now,
-  onPick,
 }: {
   game: GridGame;
   day: string;
   metrics: Metric[];
   keep: boolean;
   now: Date;
-  onPick: (caption: string) => void;
 }) {
   const cell = game.cells[day];
   const times = metrics.map((metric) => cell?.[metric.id]?.pulledAt).filter((at): at is string => Boolean(at)).sort();
@@ -173,7 +173,11 @@ function GameDayCard({
                 {metric.label}
               </dt>
               <dd className="text-base">
-                {point ? <TapValue point={point} metric={metric} keep={keep} onPick={onPick} /> : <span className="text-muted-foreground">—</span>}
+                {point ? (
+                  <TapValue point={point} metric={metric} keep={keep} caption={`${metric.label} for ${game.opponent}: ${pointCaption(point)}`} />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
               </dd>
             </div>
           );
@@ -190,7 +194,6 @@ export function GridPage() {
   const [keep, setKeep] = useState(readKeep);
   const [team, setTeam] = useState("");
   const [day, setDay] = useState<string | null>(null);
-  const [detail, setDetail] = useState<string | null>(null);
   const now = useMemo(() => new Date(), []);
 
   useEffect(() => {
@@ -211,15 +214,6 @@ export function GridPage() {
       cancelled = true;
     };
   }, []);
-
-  function toggleMetric(id: GridMetricId) {
-    setMetrics((current) => {
-      const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
-      const stored = next.length > 0 ? next : current;
-      store(METRIC_KEY, JSON.stringify(stored));
-      return stored;
-    });
-  }
 
   function toggleKeep(next: boolean) {
     setKeep(next);
@@ -253,52 +247,54 @@ export function GridPage() {
   return (
     <PageShell title="Price grid" current="grid" subtitle={`${grid.games.length} games over ${grid.days.length} days`} updatedAt={grid.asof} wide>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <div role="search" className="min-w-0 flex-1">
-          <InputGroup className="h-11 bg-card">
-            <InputGroupAddon align="inline-start">
-              <SearchIcon />
-            </InputGroupAddon>
-            <InputGroupInput
-              type="search"
-              value={team}
-              onChange={(event) => setTeam(event.target.value)}
-              placeholder="Search team or date"
-              aria-label="Search games"
-              className="text-base"
-            />
-          </InputGroup>
+        <GameSearch value={team} onValueChange={setTeam} />
+        <div className="md:hidden">
+          <OptionSelect
+            label="Day"
+            value={shownDay}
+            onValueChange={setDay}
+            options={grid.days.map((item) => ({ value: item, label: dayLabel(item) }))}
+          />
         </div>
-        <Select value={shownDay} onValueChange={setDay}>
-          <SelectTrigger aria-label="Day" className="h-11 bg-card sm:w-40 md:hidden">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {grid.days.map((item) => (
-              <SelectItem key={item} value={item}>
-                {dayLabel(item)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       <Card className="mt-3 gap-0 px-4 py-1">
         <Disclosure title={`Metrics (${selected.length} shown)`}>
           <div className="space-y-3 pb-4">
-            <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-5">
+            <CheckboxGroup
+              aria-label="Metrics"
+              value={metrics}
+              onValueChange={(next, details) => {
+                const known = new Set(GRID_METRICS.map((metric) => metric.id));
+                const picked = next.filter((id): id is GridMetricId => known.has(id as GridMetricId));
+                if (picked.length === 0) {
+                  details.cancel();
+                  return;
+                }
+                setMetrics(picked);
+                store(METRIC_KEY, JSON.stringify(picked));
+              }}
+              className="grid grid-cols-2 gap-x-4 sm:grid-cols-5"
+            >
               {GRID_METRICS.map((metric) => (
                 <label key={metric.id} className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-                  <Checkbox checked={metrics.includes(metric.id)} onCheckedChange={() => toggleMetric(metric.id)} />
+                  <Checkbox value={metric.id}>
+                    <CheckboxIndicator>
+                      <CheckIcon aria-hidden="true" className="size-3.5" />
+                    </CheckboxIndicator>
+                  </Checkbox>
                   {metric.label}
                 </label>
               ))}
-            </div>
+            </CheckboxGroup>
             <div className="flex flex-wrap items-center gap-4 border-t pt-3">
-              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-                <Checkbox checked={keep} onCheckedChange={(next) => toggleKeep(next === true)} />
-                Show what you keep
-              </label>
-              <Button type="button" variant="outline" className="h-11" onClick={download}>
+              <Field className="flex-row items-center gap-2">
+                <Switch checked={keep} onCheckedChange={toggleKeep}>
+                  <SwitchThumb />
+                </Switch>
+                <FieldLabel className="text-sm text-foreground">Show what you keep</FieldLabel>
+              </Field>
+              <Button type="button" className={cn(textButtonClass, "h-11")} onClick={download}>
                 Download CSV
               </Button>
             </div>
@@ -306,17 +302,11 @@ export function GridPage() {
         </Disclosure>
       </Card>
 
-      {detail ? (
-        <p className="mt-3 text-sm text-navy" role="status">
-          {detail}
-        </p>
-      ) : null}
-
       {visible.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No games match.</p> : null}
 
       <div className="mt-4 grid gap-4 md:hidden">
         {visible.filter((game) => pulledOn(game, shownDay)).map((game) => (
-          <GameDayCard key={game.date} game={game} day={shownDay} metrics={selected} keep={keep} now={now} onPick={setDetail} />
+          <GameDayCard key={game.date} game={game} day={shownDay} metrics={selected} keep={keep} now={now} />
         ))}
       </div>
 
@@ -363,7 +353,16 @@ export function GridPage() {
                               className={cn("rounded-md px-1.5 py-1 leading-tight", point ? CELL_TONE[freshness(point.pulledAt, now).tone] : "text-muted-foreground")}
                             >
                               {selected.length > 1 ? <span className="block text-xs opacity-80">{metric.label}</span> : null}
-                              {point ? <PointValue point={point} metric={metric} keep={keep} onPick={setDetail} /> : <span aria-label={`${metric.label} not pulled`}>—</span>}
+                              {point ? (
+                                <PointValue
+                                  point={point}
+                                  metric={metric}
+                                  keep={keep}
+                                  caption={`${metric.label} for ${game.opponent} on ${dayLabel(item)}: ${pointCaption(point)}`}
+                                />
+                              ) : (
+                                <span aria-label={`${metric.label} for ${game.opponent} on ${dayLabel(item)} was not pulled`}>—</span>
+                              )}
                             </div>
                           );
                         })}
