@@ -13,11 +13,8 @@ import {
 } from "./book";
 import { offerAsOf, type LoggedInstantOffer } from "./instant-offer";
 import {
-  askOffers,
   bestExpectedOffer,
-  calibrateSaleCurve,
   detectLikelySales,
-  fitMarketModel,
   isNationalTv,
   isWeekendGame,
   keepingSentence,
@@ -25,8 +22,6 @@ import {
   NOT_ENOUGH_DATA,
   offersNearTip,
   planSeason,
-  projectGame,
-  saleOutcomeRows,
   SEASON_CUSHION_DEFAULT,
   sitSuggestion,
   soldSuggestion,
@@ -42,6 +37,7 @@ import {
   type ProbableSale,
   type SeasonOutlook,
 } from "./price-model";
+import { fitQuoteFactors, isQuoteListing, quoteGame, tipBucket, type MarketQuote } from "./quote";
 import { daysUntil, type Demand, type ModelAsk } from "./pricing";
 
 /**
@@ -100,6 +96,8 @@ export type TrendsGameSeed = {
   nationalTv?: boolean;
   /** Wizards win rate on the morning of the check, when we have one. */
   wizardsWinRate?: number | null;
+  /** Ticketmaster event id from the book. The grid links with this. */
+  tmEventId?: string | null;
   /** Book Sit / Sell / TBD. Missing means not flagged as keeping. */
   sitOrSell?: string;
   sold?: boolean;
@@ -152,6 +150,10 @@ export type TrendsGame = {
   compsCheckedAt: string | null;
   /** Close to tip, every ask is expected to clear less than the instant offer. */
   takeInstant: boolean;
+  /** Ticketmaster event id, when the book has one. */
+  tmEventId: string | null;
+  /** Today's section quote. Null after tip, for a placeholder, and before a price. */
+  market: MarketQuote | null;
 };
 
 export type DaysOutBucket = {
@@ -485,6 +487,9 @@ function marketRow(
     winRate: seed.wizardsWinRate ?? null,
     supply: point.supply,
     instantPerTicket: point.instantPerTicket,
+    weekday: seed.weekday,
+    tip: tipBucket(seed.timeEt),
+    preseason: seed.type === "preseason",
   };
 }
 
@@ -664,6 +669,8 @@ function marketGames(input: MarketInput): {
       instantOffer: loggedFloor(input.instantOffers ?? [], seed.date, input.today),
       takeInstant: false,
       compsCheckedAt,
+      tmEventId: seed.tmEventId ?? null,
+      market: null,
     });
   }
 
@@ -688,7 +695,62 @@ export function modelAsksOf(report: Pick<TrendsReport, "games">): Record<string,
   const out: Record<string, ModelAsk> = {};
   for (const game of report.games) {
     if (game.ask == null || game.ask <= 0) continue;
-    out[game.date] = { ask: game.ask, chance: game.askChance, expected: game.askExpected };
+    const market = game.market;
+    out[game.date] = {
+      ask: game.ask,
+      chance: game.askChance,
+      expected: game.askExpected,
+      allIn: market?.allIn ?? null,
+      low: market?.low ?? null,
+      high: market?.high ?? null,
+      sectionCount: market?.sectionCount ?? null,
+      neighborCount: market?.neighborCount ?? null,
+      cheapest107: market?.cheapest107 ?? null,
+      delta: market?.delta ?? null,
+    };
+  }
+  return out;
+}
+
+/** Latest full comp board on or before today. A partial pull (fewer rows than it counted) is skipped. */
+function latestBoards(
+  pulls: readonly TrendPull[],
+  listings: readonly TrendListing[],
+  today: string,
+): Map<string, { listings: TrendListing[]; daysOut: number; median: number | null; count: number | null }> {
+  const byPull = new Map<number, TrendListing[]>();
+  for (const row of listings) {
+    const list = byPull.get(row.pullId) ?? [];
+    list.push(row);
+    byPull.set(row.pullId, list);
+  }
+  const byGame = new Map<string, TrendPull[]>();
+  for (const pull of pulls) {
+    if (!pull.gameDate || !DAY.test(pull.etDate) || pull.etDate > today || pull.source === "apify") continue;
+    const list = byGame.get(pull.gameDate) ?? [];
+    list.push(pull);
+    byGame.set(pull.gameDate, list);
+  }
+  const out = new Map<string, { listings: TrendListing[]; daysOut: number; median: number | null; count: number | null }>();
+  for (const [gameDate, rows] of byGame) {
+    const ordered = rows
+      .slice()
+      .sort((a, b) => b.etDate.localeCompare(a.etDate) || b.pulledAt.localeCompare(a.pulledAt));
+    for (const pull of ordered) {
+      const daysOut = daysUntil(gameDate, pull.etDate);
+      if (daysOut == null || daysOut < 0) continue;
+      const board = (byPull.get(pull.id) ?? []).filter((row) => isQuoteListing(row));
+      const partial = pull.compCount != null && board.length > 0 && board.length < pull.compCount;
+      if (partial) continue;
+      if (board.length > 0) {
+        out.set(gameDate, { listings: board, daysOut, median: null, count: null });
+        break;
+      }
+      if (pull.median != null && pull.median > 0) {
+        out.set(gameDate, { listings: [], daysOut, median: pull.median, count: pull.compCount ?? null });
+        break;
+      }
+    }
   }
   return out;
 }
@@ -702,41 +764,60 @@ function assembleTrends(
     cushion?: number;
   },
 ): TrendsReport {
-  const { seeds, games, market, latestSupply } = marketGames(input);
-  const curve = calibrateSaleCurve(saleOutcomeRows(compSnaps(input.pulls, input.listings), input.today));
-  const fit = fitMarketModel(market, input.today);
+  const { seeds, games, market } = marketGames(input);
+  const factors = fitQuoteFactors(market, input.today);
+  const boards = latestBoards(input.pulls, input.listings, input.today);
   for (const game of games) {
-    if (game.daysOut == null) continue;
     const seed = seeds.get(game.date);
-    // A placeholder slot (no opponent yet) is not a game to price from similar games.
-    if (!seed || isPlaceholderOpponent(seed.opponent)) continue;
-    game.projection = projectGame(fit, {
-      gameDate: game.date,
-      daysOut: game.daysOut,
-      tier: opponentTier(seed.opponent, seed.demand),
-      weekend: isWeekendGame(seed.weekday, seed.date),
-      nationalTv: isNationalTv(seed.notes, seed.nationalTv),
-      winRate: seed.wizardsWinRate ?? null,
-      supply: latestSupply.get(game.date) ?? null,
-      liveMedian: game.latestMedian,
-      instantPerTicket: game.instantOffer?.perTicket ?? null,
-    });
-  }
-
-  for (const game of games) {
-    const fair = game.projection.todayPrice ?? game.latestMedian ?? money(seeds.get(game.date)?.bookMedian);
     const past = game.daysOut != null && game.daysOut < 0;
-    const raw =
-      game.sold || past || fair == null
-        ? []
-        : askOffers({
-            predictedMedian: fair,
-            daysOut: Math.max(0, game.daysOut ?? 14),
-            curve,
-          });
-    const guarded = offersNearTip(raw, game.instantOffer?.total ?? null, game.daysOut ?? 99);
-    game.offers = guarded.offers;
+    if (past) {
+      game.projection = emptyProjection("");
+      continue;
+    }
+    // A placeholder slot (no opponent yet) is not a game to price from similar games.
+    if (!seed || game.daysOut == null || isPlaceholderOpponent(seed.opponent) || game.sold) continue;
+    const board = boards.get(game.date);
+    const hasRows = (board?.listings.length ?? 0) > 0;
+    const quoted = quoteGame({
+      listings: board?.listings ?? [],
+      daysOut: game.daysOut,
+      compDaysOut: board?.daysOut ?? game.series[game.series.length - 1]?.daysOut ?? game.daysOut,
+      opponent: seed.opponent,
+      demand: seed.demand,
+      weekday: seed.weekday,
+      date: seed.date,
+      timeEt: seed.timeEt,
+      type: seed.type,
+      notes: seed.notes,
+      nationalTv: seed.nationalTv,
+      listedAsk: seed.listedAsk ?? null,
+      summaryMedian: hasRows ? null : (board?.median ?? game.latestMedian),
+      summaryCount: hasRows ? null : (board?.count ?? null),
+      factors,
+    });
+    game.market = quoted;
+    const offer: AskOffer = {
+      ask: quoted.seller,
+      chance: quoted.saleChance,
+      pair: pairFromTypeIn(quoted.seller),
+      expected: quoted.expected,
+    };
+    const guarded = offersNearTip([offer], game.instantOffer?.total ?? null, game.daysOut);
+    // Keep the quote even when the instant offer wins, so the grid still has a list price.
+    game.offers = [offer];
     game.takeInstant = guarded.takeInstant;
+    game.projection = {
+      enough: true,
+      price: quoted.tip,
+      low: quoted.low,
+      high: quoted.high,
+      sentence: quoted.sentence,
+      early: factors.source === "prior" && !quoted.usedComps,
+      todayPrice: quoted.seller,
+      todayLow: quoted.low,
+      todayHigh: quoted.high,
+      suggestion: suggestionFromOffer(offer),
+    };
   }
 
   const planOptions = {
@@ -804,7 +885,7 @@ function assembleTrends(
       games,
       daysOutCurve: daysOutCurve(games),
       modelNote: modelExplainer(),
-      early: fit.ok ? fit.early : true,
+      early: factors.source === "prior",
       outlook,
   };
 }

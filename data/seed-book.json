@@ -5,7 +5,10 @@
   "season_cost": 6000,
   "section": "107",
   "row": "P",
-  "seats": [1, 2],
+  "seats": [
+    1,
+    2
+  ],
   "list_nothing_until_billy_says": true,
   "games": [
     {
@@ -21,7 +24,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Preseason",
-      "ticketdata_url": "https://www.ticketdata.com/events/170758081"
+      "ticketdata_url": "https://www.ticketdata.com/events/170758081",
+      "tm_event_id": "15006505D8C0A2AF"
     },
     {
       "date": "2026-10-12",
@@ -36,7 +40,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Preseason",
-      "ticketdata_url": "https://www.ticketdata.com/events/170759957"
+      "ticketdata_url": "https://www.ticketdata.com/events/170759957",
+      "tm_event_id": "15006505D8C4A2B9"
     },
     {
       "date": "2026-10-21",
@@ -51,7 +56,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Opening night. Dybantsa + AD intros.",
-      "ticketdata_url": "https://www.ticketdata.com/events/173092394"
+      "ticketdata_url": "https://www.ticketdata.com/events/173092394",
+      "tm_event_id": "15006505D7F1A160"
     },
     {
       "date": "2026-10-23",
@@ -66,7 +72,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173095943"
+      "ticketdata_url": "https://www.ticketdata.com/events/173095943",
+      "tm_event_id": "15006505D7F7A167"
     },
     {
       "date": "2026-10-30",
@@ -81,7 +88,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "NBA Cup group",
-      "ticketdata_url": "https://www.ticketdata.com/events/172166872"
+      "ticketdata_url": "https://www.ticketdata.com/events/172166872",
+      "tm_event_id": "15006505D7FCA178"
     },
     {
       "date": "2026-11-04",
@@ -96,7 +104,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Trae vs former team",
-      "ticketdata_url": "https://www.ticketdata.com/events/173109906"
+      "ticketdata_url": "https://www.ticketdata.com/events/173109906",
+      "tm_event_id": "15006505D801A185"
     },
     {
       "date": "2026-11-12",
@@ -111,7 +120,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173119823"
+      "ticketdata_url": "https://www.ticketdata.com/events/173119823",
+      "tm_event_id": "15006505D806A193"
     },
     {
       "date": "2026-11-15",
@@ -126,7 +136,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Marquee Rockets",
-      "ticketdata_url": "https://www.ticketdata.com/events/173125415"
+      "ticketdata_url": "https://www.ticketdata.com/events/173125415",
+      "tm_event_id": "15006505D80BA19A"
     },
     {
       "date": "2026-11-16",
@@ -141,7 +152,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "B2B home",
-      "ticketdata_url": "https://www.ticketdata.com/events/173125741"
+      "ticketdata_url": "https://www.ticketdata.com/events/173125741",
+      "tm_event_id": "15006505D811A19F"
     },
     {
       "date": "2026-11-22",
@@ -156,7 +168,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Sunday",
-      "ticketdata_url": "https://www.ticketdata.com/events/173133180"
+      "ticketdata_url": "https://www.ticketdata.com/events/173133180",
+      "tm_event_id": "15006505D816A1B5"
     },
     {
       "date": "2026-11-24",
@@ -171,7 +184,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "NBA Cup, NBC (only national-TV home)",
-      "ticketdata_url": "https://www.ticketdata.com/events/172165058"
+      "ticketdata_url": "https://www.ticketdata.com/events/172165058",
+      "tm_event_id": "15006505D81BA1C1"
     },
     {
       "date": "2026-11-28",
@@ -186,7 +200,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Saturday early",
-      "ticketdata_url": "https://www.ticketdata.com/events/173137921"
+      "ticketdata_url": "https://www.ticketdata.com/events/173137921",
+      "tm_event_id": "15006505D820A1C4"
     },
     {
       "date": "2026-12-04",
@@ -201,7 +216,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Dec 4-10: +1 home likely if WAS misses knockout",
-      "ticketdata_url": "https://www.ticketdata.com/events/181670754"
+      "ticketdata_url": "https://www.ticketdata.com/events/181670754",
+      "tm_event_id": "15006505D826A1C7"
     },
     {
       "date": "2026-12-12",
@@ -216,7 +232,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Saturday, first after Cup week",
-      "ticketdata_url": "https://www.ticketdata.com/events/173151687"
+      "ticketdata_url": "https://www.ticketdata.com/events/173151687",
+      "tm_event_id": "15006505D82BA1D1"
     },
     {
       "date": "2026-12-18",
@@ -231,7 +248,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Friday. Defending champs.",
-      "ticketdata_url": "https://www.ticketdata.com/events/173156377"
+      "ticketdata_url": "https://www.ticketdata.com/events/173156377",
+      "tm_event_id": "15006505D830A1DB"
     },
     {
       "date": "2026-12-22",
@@ -246,7 +264,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173160298"
+      "ticketdata_url": "https://www.ticketdata.com/events/173160298",
+      "tm_event_id": "15006505D835A1E3"
     },
     {
       "date": "2026-12-23",
@@ -261,7 +280,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173160945"
+      "ticketdata_url": "https://www.ticketdata.com/events/173160945",
+      "tm_event_id": "15006505D839A1E9"
     },
     {
       "date": "2026-12-26",
@@ -276,7 +296,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Saturday matinee, day after Christmas",
-      "ticketdata_url": "https://www.ticketdata.com/events/173162266"
+      "ticketdata_url": "https://www.ticketdata.com/events/173162266",
+      "tm_event_id": "15006505D83EA1EF"
     },
     {
       "date": "2027-01-01",
@@ -291,7 +312,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "NYD. Wemby.",
-      "ticketdata_url": "https://www.ticketdata.com/events/173165133"
+      "ticketdata_url": "https://www.ticketdata.com/events/173165133",
+      "tm_event_id": "15006505D843A1F6"
     },
     {
       "date": "2027-01-03",
@@ -306,7 +328,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Sunday",
-      "ticketdata_url": "https://www.ticketdata.com/events/173166064"
+      "ticketdata_url": "https://www.ticketdata.com/events/173166064",
+      "tm_event_id": "15006505D848A1FE"
     },
     {
       "date": "2027-01-05",
@@ -321,7 +344,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Luka, no LeBron",
-      "ticketdata_url": "https://www.ticketdata.com/events/173166286"
+      "ticketdata_url": "https://www.ticketdata.com/events/173166286",
+      "tm_event_id": "15006505D84DA206"
     },
     {
       "date": "2027-01-07",
@@ -336,7 +360,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "SGA / Thunder",
-      "ticketdata_url": "https://www.ticketdata.com/events/173166696"
+      "ticketdata_url": "https://www.ticketdata.com/events/173166696",
+      "tm_event_id": "15006505D852A20A"
     },
     {
       "date": "2027-01-08",
@@ -351,7 +376,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "B2B Friday",
-      "ticketdata_url": "https://www.ticketdata.com/events/173167162"
+      "ticketdata_url": "https://www.ticketdata.com/events/173167162",
+      "tm_event_id": "15006505D857A20E"
     },
     {
       "date": "2027-01-11",
@@ -366,7 +392,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173168264"
+      "ticketdata_url": "https://www.ticketdata.com/events/173168264",
+      "tm_event_id": "15006505D85CA215"
     },
     {
       "date": "2027-01-17",
@@ -381,7 +408,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Sunday matinee",
-      "ticketdata_url": "https://www.ticketdata.com/events/173170584"
+      "ticketdata_url": "https://www.ticketdata.com/events/173170584",
+      "tm_event_id": "15006505D860A21D"
     },
     {
       "date": "2027-01-18",
@@ -396,7 +424,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "MLK Day afternoon",
-      "ticketdata_url": "https://www.ticketdata.com/events/173170683"
+      "ticketdata_url": "https://www.ticketdata.com/events/173170683",
+      "tm_event_id": "15006505D865A21F"
     },
     {
       "date": "2027-01-28",
@@ -411,7 +440,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173173837"
+      "ticketdata_url": "https://www.ticketdata.com/events/173173837",
+      "tm_event_id": "15006505D86AA228"
     },
     {
       "date": "2027-02-04",
@@ -426,7 +456,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173176379"
+      "ticketdata_url": "https://www.ticketdata.com/events/173176379",
+      "tm_event_id": "15006505D86FA235"
     },
     {
       "date": "2027-02-08",
@@ -441,7 +472,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173178153"
+      "ticketdata_url": "https://www.ticketdata.com/events/173178153",
+      "tm_event_id": "15006505D874A240"
     },
     {
       "date": "2027-02-10",
@@ -456,7 +488,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173178557"
+      "ticketdata_url": "https://www.ticketdata.com/events/173178557",
+      "tm_event_id": "15006505D87AA249"
     },
     {
       "date": "2027-02-12",
@@ -471,7 +504,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Friday",
-      "ticketdata_url": "https://www.ticketdata.com/events/173179412"
+      "ticketdata_url": "https://www.ticketdata.com/events/173179412",
+      "tm_event_id": "15006505D87FA254"
     },
     {
       "date": "2027-02-13",
@@ -486,7 +520,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Saturday",
-      "ticketdata_url": "https://www.ticketdata.com/events/173180205"
+      "ticketdata_url": "https://www.ticketdata.com/events/173180205",
+      "tm_event_id": "15006505D885A257"
     },
     {
       "date": "2027-02-15",
@@ -501,7 +536,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Presidents Day",
-      "ticketdata_url": "https://www.ticketdata.com/events/173180662"
+      "ticketdata_url": "https://www.ticketdata.com/events/173180662",
+      "tm_event_id": "15006505D88AA261"
     },
     {
       "date": "2027-02-17",
@@ -516,7 +552,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Last home before All-Star",
-      "ticketdata_url": "https://www.ticketdata.com/events/173181083"
+      "ticketdata_url": "https://www.ticketdata.com/events/173181083",
+      "tm_event_id": "15006505D88FA26E"
     },
     {
       "date": "2027-03-06",
@@ -531,7 +568,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Saturday. Dybantsa vs Peterson (1 vs 2).",
-      "ticketdata_url": "https://www.ticketdata.com/events/173187557"
+      "ticketdata_url": "https://www.ticketdata.com/events/173187557",
+      "tm_event_id": "15006505D894A27A"
     },
     {
       "date": "2027-03-16",
@@ -546,7 +584,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Knicks #2",
-      "ticketdata_url": "https://www.ticketdata.com/events/173190569"
+      "ticketdata_url": "https://www.ticketdata.com/events/173190569",
+      "tm_event_id": "15006505D899A27F"
     },
     {
       "date": "2027-03-18",
@@ -561,7 +600,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "LeBron first visit, Thursday — sell",
-      "ticketdata_url": "https://www.ticketdata.com/events/173191108"
+      "ticketdata_url": "https://www.ticketdata.com/events/173191108",
+      "tm_event_id": "15006505D89EA284"
     },
     {
       "date": "2027-03-24",
@@ -576,7 +616,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173193027"
+      "ticketdata_url": "https://www.ticketdata.com/events/173193027",
+      "tm_event_id": "15006505D8A3A28A"
     },
     {
       "date": "2027-03-27",
@@ -591,7 +632,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Saturday + Curry",
-      "ticketdata_url": "https://www.ticketdata.com/events/173194066"
+      "ticketdata_url": "https://www.ticketdata.com/events/173194066",
+      "tm_event_id": "15006505D8A8A28F"
     },
     {
       "date": "2027-03-28",
@@ -606,7 +648,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "B2B Sunday",
-      "ticketdata_url": "https://www.ticketdata.com/events/173194239"
+      "ticketdata_url": "https://www.ticketdata.com/events/173194239",
+      "tm_event_id": "15006505D8ACA293"
     },
     {
       "date": "2027-03-31",
@@ -621,7 +664,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "",
-      "ticketdata_url": "https://www.ticketdata.com/events/173194715"
+      "ticketdata_url": "https://www.ticketdata.com/events/173194715",
+      "tm_event_id": "15006505D8B1A29D"
     },
     {
       "date": "2027-04-02",
@@ -636,7 +680,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "LeBron Friday — keep this one",
-      "ticketdata_url": "https://www.ticketdata.com/events/173195372"
+      "ticketdata_url": "https://www.ticketdata.com/events/173195372",
+      "tm_event_id": "15006505D8B6A2A6"
     },
     {
       "date": "2027-04-11",
@@ -651,7 +696,8 @@
       "listed_ask": null,
       "sold": false,
       "notes": "Home finale",
-      "ticketdata_url": "https://www.ticketdata.com/events/173198337"
+      "ticketdata_url": "https://www.ticketdata.com/events/173198337",
+      "tm_event_id": "15006505D8BBA2AB"
     }
   ]
 }

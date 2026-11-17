@@ -14,6 +14,20 @@ export type Game = {
   model_sale_chance?: number | null;
   /** Expected pair cash after the fee at model_ask. */
   model_expected?: number | null;
+  /** Buyer all-in at model_ask, about 1.23× the seller price. */
+  model_all_in?: number | null;
+  model_low?: number | null;
+  model_high?: number | null;
+  /** Pairs in section 107 on the quote's board. */
+  model_section_count?: number | null;
+  /** Pairs in 108, 118 and 119 on that board. */
+  model_neighbor_count?: number | null;
+  /** Cheapest section 107 pair, seller dollars. */
+  cheapest_107?: number | null;
+  /** Current list, or the ask when nothing is listed, minus cheapest_107. */
+  market_delta?: number | null;
+  /** Ticketmaster event id. The page links to /event/<id>. */
+  tm_event_id?: string | null;
   /** Pair cash is computed in the browser from the type-in he is using. */
   cash_both_after_fee: number | null;
   /**

@@ -89,6 +89,8 @@ export type GridGame = {
   date: string;
   opponent: string;
   weekday: string;
+  /** Ticketmaster event id from the book, when the game has one. */
+  tmEventId: string | null;
   cells: Record<string, Partial<Record<GridMetricId, GridPoint>>>;
 };
 
@@ -607,6 +609,7 @@ export function buildPriceGrid(input: {
       date: seed.date,
       opponent: seed.opponent,
       weekday: seed.weekday,
+      tmEventId: seed.tmEventId ?? null,
       cells,
     });
   }

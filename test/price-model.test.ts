@@ -518,15 +518,15 @@ describe("gates, early blend, and the list suggestion", () => {
   it("explains the model without technical jargon", () => {
     const note = modelExplainer();
     expect(note).toMatch(/early estimate/i);
-    expect(note).toMatch(/latest middle of similar seats/);
-    expect(note).toMatch(/no listings yet gets a price from similar games/);
-    expect(note).toMatch(/leaving out singles/);
+    expect(note).toMatch(/section 107/);
+    expect(note).toMatch(/cheaper pairs/);
+    expect(note).toMatch(/priced up/);
+    expect(note).toMatch(/\$75 floor/);
+    expect(note).toMatch(/1\.23/);
     expect(note).toMatch(/\$6,000/);
     expect(note).toMatch(/15%/);
-    expect(note).toMatch(/possible sale/i);
     expect(note).toMatch(/instant offer/i);
-    expect(note).toMatch(/take the instant offer/i);
-    expect(note).toMatch(/nothing is listed automatically/);
+    expect(note).toMatch(/nothing is listed automatically/i);
     expect(note).not.toMatch(/regression|spline|logit|logistic|bayes|hierarchical|coefficient|prior|empirical/i);
   });
 

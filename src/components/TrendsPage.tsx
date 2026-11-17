@@ -12,10 +12,10 @@ import {
   type SeasonOutlook,
 } from "@shared/price-model";
 import { formatChance, formatGameDate } from "@shared/format";
-import { formatDaysOut } from "@shared/pricing";
+import { formatDaysOut, LIST_FLOOR, marketDeltaPhrase } from "@shared/pricing";
 import { readScenario, writeScenario, type ScenarioChoice, type ScenarioMap } from "@/lib/scenario";
 import { DaysOutChart, PriceTrendChart, Sparkline } from "@/components/TrendChart";
-import { BigNumber, Change, Disclosure, Fact, Gauge, HowThisWorks, Loading, Message, PageShell, Updated } from "@/components/kit";
+import { BigNumber, Change, Disclosure, Fact, Gauge, HowThisWorks, Loading, Message, PageShell, TmEventLink, Updated } from "@/components/kit";
 import { SitSellToggle } from "@/components/SitSellToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -168,27 +168,39 @@ function SeasonCard({ outlook }: { outlook: SeasonOutlook }) {
 function GameCard({ game, outlook, scenario }: { game: TrendsGame; outlook: SeasonOutlook; scenario: ScenarioMap }) {
   const big = headline(game, outlook, scenario);
   const sit = !game.sold && choiceOf(game, scenario) === "Sit";
+  const market = game.market;
+  const compLine =
+    market == null || (market.sectionCount === 0 && market.neighborCount === 0)
+      ? null
+      : [
+          market.sectionCount === 1 ? "1 pair in 107" : `${market.sectionCount} pairs in 107`,
+          market.delta != null ? marketDeltaPhrase(market.delta) : null,
+        ].join(" · ");
   return (
-    <a href={`/trends/${game.date}`} className="block rounded-xl focus-visible:ring-2 focus-visible:ring-ring">
-      <Card className="h-full gap-4 px-4 py-4 transition-shadow hover:ring-foreground/25">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold leading-snug text-navy">{game.opponent}</h2>
-            <p className="text-sm text-muted-foreground">{dateLine(game)}</p>
-          </div>
+    <Card className="h-full gap-4 px-4 py-4 transition-shadow hover:ring-foreground/25">
+      <div className="flex items-start justify-between gap-3">
+        <a href={`/trends/${game.date}`} className="min-w-0 rounded-sm focus-visible:ring-2 focus-visible:ring-ring">
+          <h2 className="text-base font-semibold leading-snug text-navy">{game.opponent}</h2>
+          <p className="text-sm text-muted-foreground">{dateLine(game)}</p>
+        </a>
+        <div className="flex shrink-0 flex-col items-end">
           {game.sold ? <Badge className="bg-emerald-700 text-white">Sold</Badge> : sit ? <Badge variant="secondary">Sit</Badge> : null}
+          <TmEventLink eventId={game.tmEventId} />
         </div>
+      </div>
+      <a href={`/trends/${game.date}`} className="block rounded-sm focus-visible:ring-2 focus-visible:ring-ring">
         <div className="flex items-end justify-between gap-3">
           <BigNumber label={big.label} value={big.value} unit={big.unit} />
           <Sparkline values={game.series.map((point) => point.median)} label={`${game.opponent} similar-seat prices, ${game.checks} checks`} />
         </div>
-        <p className="flex flex-wrap gap-x-1.5 text-sm text-muted-foreground">
+        <p className="mt-3 flex flex-wrap gap-x-1.5 text-sm text-muted-foreground">
           {big.chance != null ? <span>{formatChance(big.chance)} chance to sell ·</span> : null}
           <Change value={game.change7d} />
           <span>this week</span>
         </p>
-      </Card>
-    </a>
+        {compLine ? <p className="mt-1 text-sm text-navy first-letter:uppercase">{compLine}</p> : null}
+      </a>
+    </Card>
   );
 }
 
@@ -316,6 +328,7 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
 
   return (
     <PageShell title={game.opponent} current="trends" subtitle={dateLine(game, true)} updatedAt={game.compsCheckedAt}>
+      <TmEventLink eventId={game.tmEventId} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="gap-4 px-4 py-4">
           <div className="flex items-start justify-between gap-4">
@@ -374,6 +387,16 @@ function GameView({ report, game }: { report: TrendsReport; game: TrendsGame }) 
           <div className="space-y-4 pb-4 pt-1">
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Fact label="Model ask" value={money(game.ask)} />
+              <Fact label="Buyers pay about" value={money(game.market?.allIn)} />
+              <Fact label="Your floor" value={`${money(LIST_FLOOR)} · not in the ask`} />
+              <Fact
+                label="Vs cheapest in 107"
+                value={
+                  game.market?.delta == null
+                    ? "—"
+                    : `${marketDeltaPhrase(game.market.delta)} · ${game.market.sectionCount} pairs`
+                }
+              />
               <Fact label="You keep, pair" value={money(game.pair)} />
               <Fact label="Similar seats now" value={money(game.latestMedian)} />
               <Fact label="Cheapest similar" value={money(game.latestCheapest)} />

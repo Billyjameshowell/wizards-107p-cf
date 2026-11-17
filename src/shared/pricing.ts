@@ -28,17 +28,32 @@ import { compHistoryNote, type CompConfidence } from "./price-history";
  * The middle is the blended SeatData band, not the arena median. Recent checks
  * count more. It is shown next to the ask for context.
  *
- * The suggested type-in is the price model's ask (src/shared/price-model.ts,
- * built by the daily trends step from the comps archive): the ask with the most
- * expected cash after the sale chance, leaned once toward the season goal. The
- * book, the trends page and the grid all read that one ask. A number he typed is
- * still never replaced.
+ * The suggested type-in is the section quote (src/shared/quote.ts): a percentile
+ * of current 107 pairs (108/118/119 only when 107 is thin), shaded for a stale
+ * board and for day, tip time and opponent when no pairs are listed. The $75
+ * floor is not part of that number. The book, the trends page and the grid all
+ * read that one ask. A number he typed is still never replaced.
  *
  * A saved type-in is any whole dollar he chose. It is never passed through
  * this rounding, and it is never replaced when days or comps change.
  */
 
 export type Demand = "bigger" | "soft" | "standard";
+
+/**
+ * Billy's list floor. Shown beside the ask so he can override it.
+ * The quote in quote.ts does not read this.
+ */
+export const LIST_FLOOR = 75;
+/** Ticketmaster buyer all-in is about this times the seller's typed price. */
+export const BUYER_ALL_IN_MULTIPLE = 1.23;
+
+/** How far a typed price is from the cheapest comparable pair in section 107. */
+export function marketDeltaPhrase(delta: number): string {
+  const amount = `$${Math.abs(Math.round(delta)).toLocaleString("en-US")}`;
+  if (Math.round(delta) === 0) return "even with the cheapest pair in 107";
+  return delta > 0 ? `${amount} over the cheapest pair in 107` : `${amount} under the cheapest pair in 107`;
+}
 
 export type CompMedian = {
   median: number | null;
@@ -53,6 +68,18 @@ export type ModelAsk = {
   chance: number | null;
   /** Expected pair cash after the fee at that ask. */
   expected: number | null;
+  /** Buyer all-in, about 1.23× the seller ask. */
+  allIn?: number | null;
+  low?: number | null;
+  high?: number | null;
+  /** Pairs in section 107, rows J–T. */
+  sectionCount?: number | null;
+  /** Pairs in 108/118/119, rows J–T. */
+  neighborCount?: number | null;
+  /** Cheapest section 107 pair, seller dollars. */
+  cheapest107?: number | null;
+  /** List (or the ask, if nothing is listed) minus `cheapest107`. */
+  delta?: number | null;
 };
 
 export type Suggestion = {

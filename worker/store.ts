@@ -10,6 +10,7 @@ import {
   compHistoryFromRows,
   type CompObservation,
 } from "../src/shared/price-history";
+import { applyTicketmasterIds } from "../src/shared/ticketmaster";
 import seedBook from "../data/seed-book.json" with { type: "json" };
 
 const BOOK_KEY = "book";
@@ -80,7 +81,9 @@ export async function writeBook(env: Env, book: Book): Promise<void> {
 
 export async function loadLiveBook(env: Env): Promise<Book> {
   const existing = await readBook(env);
-  if (existing?.games?.length) return existing;
+  if (existing?.games?.length) {
+    return { ...existing, games: applyTicketmasterIds(existing.games, SEED_BOOK.games) };
+  }
   await writeBook(env, SEED_BOOK);
   return SEED_BOOK;
 }

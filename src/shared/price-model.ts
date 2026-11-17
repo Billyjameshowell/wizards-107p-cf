@@ -203,6 +203,11 @@ export type MarketRow = {
   supply: number | null;
   /** Guaranteed per-seat payout known on this day. Null when none was logged. */
   instantPerTicket?: number | null;
+  /** "Mon" … "Sun", when the check is tied to a game. The quote fit reads this. */
+  weekday?: string;
+  /** early (before 5pm), prime, or late (after 8pm). */
+  tip?: "early" | "prime" | "late";
+  preseason?: boolean;
 };
 
 export type GameQuery = {
@@ -352,15 +357,16 @@ export function trustBlend(rows: number, observedGames: number): { early: boolea
 
 export function modelExplainer(): string {
   return [
-    "It reads similar-seat prices for every home game, leaving out singles.",
-    "Today's price is the latest middle of similar seats. It learns how each game's price moves as tip nears and carries today's price along that path.",
-    "A game with no listings yet gets a price from similar games: opponent, weekend tips and national TV.",
-    "Until there's most of a season of checks, the path to tip is an Early estimate.",
-    "The goal is $6,000 after fees plus 15%. Each ask is the price that adds the most expected cash after the 5% fee. Sit games are left out.",
-    "When the goal is at risk, asks lean toward selling; when it looks safe, they hold out.",
-    "A pair that vanishes well before tip counts as a possible sale.",
-    "A saved instant offer sets a floor. Within a week of tip, if a listing likely clears less, it says take the instant offer.",
-    "These are suggestions only, and nothing is listed automatically.",
+    "The ask is the per-seat number to type in.",
+    "It reads pairs in section 107, rows J to T, and uses sections 108, 118 and 119 only when 107 is empty or has one pair.",
+    "A crowded section is priced with the cheaper pairs. One pair in 107 is priced up from the seats next door.",
+    "Day of week, tip time, weekday or weekend, opponent and days until tip come from saved checks when those checks exist. Until then they are an early estimate.",
+    "The $75 floor is shown next to the ask and is not part of the estimate.",
+    "Buyers pay about 1.23 times the typed price.",
+    "Under the ask, the page shows how far that price is from the cheapest pair in 107, and how many pairs that count is.",
+    "Close to tip, a saved instant offer that beats the ask is called out.",
+    "The season goal is still $6,000 after fees plus 15%. Sit games stay out of that plan.",
+    "Nothing is listed automatically.",
   ].join(" ");
 }
 

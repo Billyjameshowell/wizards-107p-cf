@@ -14,7 +14,7 @@ import {
   type PriceGrid,
 } from "@shared/grid";
 import { gameMatchesQuery } from "@/lib/game-search";
-import { Disclosure, HowThisWorks, Loading, Message, PageShell } from "@/components/kit";
+import { Disclosure, HowThisWorks, Loading, Message, PageShell, TmEventLink } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -162,6 +162,7 @@ function GameDayCard({
           {formatGameDate(game.date, game.weekday)}
           {latest ? ` · pulled ${formatEtClock(latest)}` : ""}
         </p>
+        <TmEventLink eventId={game.tmEventId} />
       </div>
       <dl className="grid grid-cols-2 gap-3">
         {metrics.map((metric) => {
@@ -350,6 +351,7 @@ export function GridPage() {
                       {game.opponent}
                     </a>
                     <span className="block text-muted-foreground">{formatGameDate(game.date, game.weekday)}</span>
+                    <TmEventLink eventId={game.tmEventId} className="min-h-8" />
                   </th>
                   {grid.days.map((item) => {
                     const cell = game.cells[item];

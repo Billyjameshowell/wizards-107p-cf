@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, SearchIcon, XIcon } from "lucide-react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
 import { formatChance, formatGameDate } from "@shared/format";
-import { daysUntil, etYmd, formatDaysOut, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
+import { daysUntil, etYmd, formatDaysOut, LIST_FLOOR, marketDeltaPhrase, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
 import { SeatPrice } from "@/components/SeatPrice";
 import { SitSellToggle } from "@/components/SitSellToggle";
-import { BigNumber, Disclosure, Fact, HowThisWorks, PageShell, Updated } from "@/components/kit";
+import { BigNumber, Disclosure, Fact, HowThisWorks, PageShell, TmEventLink, Updated } from "@/components/kit";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { readPriceOverrides, writePriceOverrides, type PriceOverrideMap } from "@/lib/price-overrides";
 import { DEFAULT_GAME_SORT, SORT_COLUMNS, sortGameRows, type GameSort, type SortKey } from "@/lib/sort-games";
@@ -127,6 +127,19 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
     !status.sold && similar != null ? `similar seats ${wholeDollars(similar)}` : null,
   ].filter(Boolean);
   const tm = tmLine(game);
+  const ours = status.listed && status.listed_ask != null && status.listed_ask > 0 ? status.listed_ask : view.suggestion?.typeIn ?? null;
+  const delta = game.cheapest_107 != null && ours != null ? Math.round(ours - game.cheapest_107) : null;
+  const compLine =
+    game.model_section_count == null || (game.model_section_count === 0 && !game.model_neighbor_count)
+      ? null
+      : [
+          game.model_section_count === 1 ? "1 pair in 107" : `${game.model_section_count} pairs in 107`,
+          game.model_neighbor_count ? `${game.model_neighbor_count} next door` : null,
+          delta != null ? `${status.listed ? "List is" : "Ask is"} ${marketDeltaPhrase(delta)}` : null,
+          game.model_all_in != null ? `buyers about ${money(game.model_all_in)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
 
   return (
     <Card className="gap-4 px-4 py-4">
@@ -142,12 +155,17 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
             {days != null && days >= 0 ? ` · ${formatDaysOut(days)}` : ""}
           </p>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex shrink-0 flex-col items-end">
+          <StatusBadge status={status} />
+          <TmEventLink eventId={game.tm_event_id} />
+        </div>
       </div>
 
       <div>
         <BigNumber label={big.label} value={big.value} unit={big.unit} />
         {secondary.length ? <p className="mt-1 text-sm text-muted-foreground first-letter:uppercase">{secondary.join(" · ")}</p> : null}
+        {compLine ? <p className="mt-1 text-sm text-navy first-letter:uppercase">{compLine}</p> : null}
+        <p className="mt-1 text-sm text-muted-foreground">Floor {money(LIST_FLOOR)}, separate from the ask</p>
       </div>
 
       <Collapsible className="group/details border-t pt-3">
@@ -171,6 +189,10 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
               <Fact label="Cheapest in arena" value={money(prices.getIn)} />
               <Fact label={prices.centralKind === "mean" ? "Arena average" : "Arena median"} value={money(prices.central)} />
               {tm ? <Fact label="Ticketmaster suggests" value={tm} /> : null}
+              <Fact label="Your floor" value={`${money(LIST_FLOOR)} · not in the ask`} />
+              {game.model_low != null && game.model_high != null ? (
+                <Fact label="Ask range" value={`${wholeDollars(game.model_low)}–${wholeDollars(game.model_high)}`} />
+              ) : null}
               <Fact label="Prices checked" value={<Updated at={game.comp_checked_at} prefix="" />} />
             </dl>
             {status.notes ? <p className="text-sm text-muted-foreground">{status.notes}</p> : null}
@@ -430,8 +452,9 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
 
       <HowThisWorks>
         <p>
-          The ask is the price model&apos;s per-seat number to type into Account Manager, the same one Trends and the grid
-          show. You keep 95% of it, and a number you type stays put until you clear it.
+          The ask is the per-seat number to type into Account Manager, the same one Trends and the grid show. It follows
+          pairs in section 107, and the seats next door only when 107 is thin. You keep 95% of it. The $75 floor is
+          shown beside the ask and is not added into it. A number you type stays put until you clear it.
         </p>
         <p>
           Similar seats means pairs or more in sections 107, 108, 118 and 119, rows J to T. Sit or Sell, Listed and Sold
