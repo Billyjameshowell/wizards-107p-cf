@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { freshness, type FreshTone } from "@shared/freshness";
+import { ticketmasterEventUrl } from "@shared/ticketmaster";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -196,6 +197,22 @@ export function HowThisWorks({ children }: { children: ReactNode }) {
         <div className="space-y-2 pb-4 text-sm leading-relaxed text-muted-foreground">{children}</div>
       </Disclosure>
     </Card>
+  );
+}
+
+/** Opens that game's Ticketmaster event page in a new tab. */
+export function TmEventLink({ eventId, className }: { eventId?: string | null; className?: string }) {
+  const href = ticketmasterEventUrl(eventId);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn("inline-flex min-h-11 items-center text-sm font-medium text-navy underline underline-offset-4", className)}
+    >
+      Ticketmaster
+    </a>
   );
 }
 

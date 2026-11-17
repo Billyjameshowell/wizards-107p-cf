@@ -6,12 +6,8 @@ import {
   type TrendPull,
   type TrendsGameSeed,
 } from "../src/shared/trends";
-import {
-  fitMarketModel,
-  holdoutMedianAbsPercent,
-  storedModelFit,
-  type StoredModelFit,
-} from "../src/shared/price-model";
+import { fitQuoteFactors, quoteHoldoutPercent, QUOTE_VERSION } from "../src/shared/quote";
+import type { StoredModelFit } from "../src/shared/price-model";
 import { proxySales } from "../src/shared/trends";
 import { ensureArchive } from "./archive-store";
 import { insertProbableSales } from "./likely-sales";
@@ -90,15 +86,22 @@ export function fitFromArchive(input: {
     listings: input.listings,
     instantOffers: input.instantOffers,
   });
-  const fit = fitMarketModel(rows, input.today);
-  const holdout = holdoutMedianAbsPercent(rows, input.today);
-  return storedModelFit({
-    fit,
-    holdoutMedianAbsPercent: holdout,
+  const factors = fitQuoteFactors(rows, input.today);
+  return {
+    version: QUOTE_VERSION,
     fittedAt: input.fittedAt,
     etDate: input.etDate,
     trigger: input.trigger,
-  });
+    rows: factors.rows,
+    games: factors.games,
+    observedGames: factors.observedGames,
+    early: factors.source === "prior" ? 1 : 0,
+    blend: factors.weight,
+    sigma: null,
+    sigmaGame: null,
+    holdoutMedianAbsPercent: quoteHoldoutPercent(rows, input.today),
+    paramsJson: JSON.stringify(factors),
+  };
 }
 
 export type SavedModelStatus = {

@@ -69,5 +69,12 @@ function withModelAsk(game: Game, model: ModelAsk | null): Game {
     model_ask: model?.ask ?? null,
     model_sale_chance: model?.chance ?? null,
     model_expected: model?.expected ?? null,
+    model_all_in: model?.allIn ?? null,
+    model_low: model?.low ?? null,
+    model_high: model?.high ?? null,
+    model_section_count: model?.sectionCount ?? null,
+    model_neighbor_count: model?.neighborCount ?? null,
+    cheapest_107: model?.cheapest107 ?? null,
+    market_delta: model?.delta ?? null,
   };
 }

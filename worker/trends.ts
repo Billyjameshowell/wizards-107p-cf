@@ -141,6 +141,7 @@ export function toSeed(game: Game): TrendsGameSeed {
     sold: game.sold,
     listedAsk: game.listed_ask,
     soldKeepTotal: game.sold_keep_total ?? null,
+    tmEventId: game.tm_event_id ?? null,
   };
 }
 

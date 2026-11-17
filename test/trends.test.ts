@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { planLegacyArchive } from "@shared/archive";
-import { NOT_ENOUGH_DATA } from "@shared/price-model";
 import {
   bandQuote,
   buildTrendsReport,
@@ -104,11 +103,14 @@ describe("projection anchored to today's comps", () => {
   const report = buildTrendsReport({ today: "2026-10-28", games, pulls, listings });
   const byDate = new Map(report.games.map((game) => [game.date, game]));
 
-  it("prices a listed game off its latest middle, not a level fitted on other games", () => {
+  it("prices an empty section 107 up from the pairs next door", () => {
     const sixers = byDate.get("2026-12-02")!;
     expect(sixers.projection.enough).toBe(true);
-    expect(sixers.projection.todayPrice).toBe(Math.round(sixers.latestMedian!));
-    expect(sixers.ask!).toBeGreaterThan(sixers.latestMedian! * 0.85);
+    expect(sixers.market?.pool).toBe("neighbors");
+    expect(sixers.market?.sectionCount).toBe(0);
+    expect(sixers.ask).toBe(sixers.projection.todayPrice);
+    expect(sixers.ask!).toBeGreaterThan(sixers.latestMedian!);
+    expect(sixers.ask!).toBeLessThan(sixers.latestMedian! * 1.3);
   });
 
   it("keeps a partial listings pull out of the fit and shows it only as a weak reading", () => {
@@ -123,8 +125,10 @@ describe("projection anchored to today's comps", () => {
   it("gives an unlisted game a price from similar games, and leaves a TBD slot alone", () => {
     const unlisted = byDate.get("2027-01-20")!;
     expect(unlisted.checks).toBe(0);
-    expect(unlisted.projection.sentence).toMatch(/No similar seats are listed for this game yet/);
+    expect(unlisted.projection.sentence).toMatch(/No similar pairs are listed yet/);
+    expect(unlisted.market?.pool).toBe("prior");
     expect(unlisted.ask).not.toBeNull();
+    expect(unlisted.ask).not.toBe(75);
     const tbd = byDate.get("2026-12-30")!;
     expect(tbd.projection.enough).toBe(false);
     expect(tbd.ask).toBeNull();
@@ -169,8 +173,9 @@ describe("buildTrendsReport", () => {
     });
     expect(report.games[0]?.checks).toBe(0);
     expect(report.games[0]?.series).toEqual([]);
-    expect(report.games[0]?.projection.sentence).toBe(NOT_ENOUGH_DATA);
-    expect(report.games[0]?.ask).toBeNull();
+    expect(report.games[0]?.market?.pool).toBe("prior");
+    expect(report.games[0]?.ask).not.toBe(40);
+    expect(report.games[0]?.projection.sentence).toMatch(/No similar pairs/);
   });
 
   it("computes a 7-day change and a since-first change from daily middles", () => {
@@ -188,8 +193,10 @@ describe("buildTrendsReport", () => {
     expect(row?.change7d).toBe(5.6);
     expect(row?.changeSinceFirst).toBe(-5);
     expect(row?.checks).toBe(3);
-    expect(row?.projection.enough).toBe(false);
-    expect(row?.projection.sentence).toBe(NOT_ENOUGH_DATA);
+    // No row-level comps: the ask follows the saved middle, not a get-in.
+    expect(row?.market?.pool).toBe("summary");
+    expect(row?.ask).toBe(190);
+    expect(row?.projection.sentence).toMatch(/saved middle/);
   });
 
   it("reads the legacy backfill into a public report with no raw fields", () => {
@@ -230,17 +237,19 @@ describe("buildTrendsReport", () => {
     expect(bucks?.latestCheapest).toBeGreaterThan(80);
     expect(bucks?.latestCheapest).toBeLessThan(120);
     expect(bucks?.changeSinceFirst).toBeLessThan(0);
-    // The backfill has no full listing pulls, so the path-to-tip fit waits; the ask still
-    // comes from the latest similar-seat middle.
-    expect(bucks?.projection.enough).toBe(false);
-    expect(bucks?.offers.length).toBeGreaterThan(0);
-    expect(bucks?.ask).not.toBeNull();
+    // The backfill kept middles, not listing rows. The ask follows that middle.
+    expect(bucks?.market?.pool).toBe("summary");
+    expect(bucks?.offers).toHaveLength(1);
+    expect(bucks?.ask ?? 0).toBeGreaterThan(150);
+    expect(bucks?.ask ?? 0).toBeLessThan((bucks?.latestMedian ?? 0) * 1.05);
     expect(bucks?.instantOffer).toBeNull();
     expect(bucks?.takeInstant).toBe(false);
 
     const pistons = report.games.find((row) => row.date === "2026-10-10");
     expect(pistons?.checks).toBe(0);
-    expect(pistons?.projection.enough).toBe(false);
+    expect(pistons?.market?.pool).toBe("prior");
+    expect(pistons?.ask).not.toBeNull();
+    expect(pistons?.ask ?? 0).toBeLessThan(bucks?.ask ?? 0);
 
     expectPublic(report);
   });
@@ -268,7 +277,11 @@ describe("instant offer floor", () => {
         pull({ id: 1, source: "seatdata", gameDate: "2026-10-10", etDate: "2026-10-01", pulledAt: "2026-10-01T16:00:00.000Z", median: 8 }),
         pull({ id: 2, source: "seatdata", gameDate: "2026-10-10", etDate: "2026-10-08", pulledAt: "2026-10-08T16:00:00.000Z", median: 9 }),
       ],
-      listings: [],
+      listings: [
+        { pullId: 2, section: "107", row: "J", quantity: 2, price: 10, active: 1 },
+        { pullId: 2, section: "107", row: "K", quantity: 2, price: 12, active: 1 },
+        { pullId: 2, section: "107", row: "L", quantity: 2, price: 14, active: 1 },
+      ],
       instantOffers: [
         {
           gameDate: "2026-10-10",
