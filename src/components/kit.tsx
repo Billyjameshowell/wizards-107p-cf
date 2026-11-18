@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 import { freshness, type FreshTone } from "@shared/freshness";
 import { ticketmasterEventUrl } from "@shared/ticketmaster";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -205,14 +206,12 @@ export function TmEventLink({ eventId, className }: { eventId?: string | null; c
   const href = ticketmasterEventUrl(eventId);
   if (!href) return null;
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn("inline-flex min-h-11 items-center text-sm font-medium text-navy underline underline-offset-4", className)}
-    >
-      Ticketmaster
-    </a>
+    <Button variant="outline" className={cn("min-h-11 bg-card", className)} asChild>
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        <ExternalLinkIcon data-icon="inline-start" />
+        Ticketmaster
+      </a>
+    </Button>
   );
 }
 
