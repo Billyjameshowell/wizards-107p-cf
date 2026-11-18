@@ -19,6 +19,14 @@ interface __BaseEnv_Env {
 	SEASON_CUSHION?: string;
 	APIFY_MAX_TOTAL_CHARGE_USD?: string;
 	APIFY_MAX_EVENTS?: string;
+	TM_COMPS_ENABLED?: string;
+	TM_WEBHOOK_BASE?: string;
+	TM_MAX_USD_PER_PULL?: string;
+	TM_MAX_USD_PER_ET_DAY?: string;
+	TM_ATTEMPT_RESERVE_USD?: string;
+	TM_MAX_CHARGE_USD_PER_RUN?: string;
+	TM_DAYS_AHEAD?: string;
+	TM_MAX_EVENTS_PER_PULL?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

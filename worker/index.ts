@@ -1,6 +1,6 @@
 import { priceBook } from "../src/shared/book-pricing";
 import { authorizeBearer, etDateFrom } from "../src/shared/guardrails";
-import { adminStatusResponse } from "./admin-status";
+import { adminStatusResponse, authorizeAdmin } from "./admin-status";
 import { exportArchive } from "./export";
 import { loadLiveBook } from "./store";
 import { freshnessResponse } from "./freshness";
@@ -10,6 +10,16 @@ import { loadModelAsks, trendsResponse } from "./trends";
 import { salesResponse } from "./sales";
 import { isStep, runStep, stepForCron } from "./schedule";
 import { latestTmReads, tmPortalResponse } from "./tm-portal";
+import {
+  runTmCron,
+  startPull,
+  sweepPending,
+  TM_CRON,
+  TM_EVENTS,
+  tmCompsCsvResponse,
+  tmCompsStatusResponse,
+  tmWebhookResponse,
+} from "./tm-comps";
 
 const PRIVATE = {
   "Cache-Control": "no-store",
@@ -81,6 +91,37 @@ export default {
       return tmPortalResponse(request, env);
     }
 
+    if (url.pathname === "/api/tm-comps/webhook" && request.method === "POST") {
+      return tmWebhookResponse(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/admin/tm-comps")) {
+      if (!authorizeAdmin(request.headers.get("Authorization"), env.CRON_SECRET)) {
+        return new Response("unauthorized", {
+          status: 401,
+          headers: { ...PRIVATE, "WWW-Authenticate": 'Basic realm="admin"' },
+        });
+      }
+      if (url.pathname === "/api/admin/tm-comps.csv" && request.method === "GET") {
+        return tmCompsCsvResponse(request, env);
+      }
+      if (url.pathname === "/api/admin/tm-comps" && request.method === "GET") {
+        return tmCompsStatusResponse(env);
+      }
+      if (url.pathname === "/api/admin/tm-comps/run" && request.method === "POST") {
+        // Manual pull: ?kind=full|gameday, or ?event=YYYY-MM-DD|<TM id> for one game.
+        const kind = url.searchParams.get("kind") === "gameday" ? "gameday" : "full";
+        const event = url.searchParams.get("event");
+        const events = event ? TM_EVENTS.filter((e) => e.event_date === event || e.event_id === event) : undefined;
+        if (event && !events?.length) return Response.json({ error: "unknown event" }, { status: 404, headers: PRIVATE });
+        return Response.json(await startPull(env, kind, new Date(), fetch, { events, force: true }), { headers: PRIVATE });
+      }
+      if (url.pathname === "/api/admin/tm-comps/sweep" && request.method === "POST") {
+        return Response.json(await sweepPending(env, fetch, new Date(Date.now() + 60 * 60_000)), { headers: PRIVATE });
+      }
+      return new Response(null, { status: 404, headers: PRIVATE });
+    }
+
     if (url.pathname.startsWith("/api/")) {
       return new Response(null, { status: 404 });
     }
@@ -88,6 +129,15 @@ export default {
     return new Response(null, { status: 404 });
   },
   async scheduled(controller, env, ctx) {
+    if (controller.cron === TM_CRON) {
+      // Ticketmaster comps (worker/tm-comps.ts): ET clock picks full / game-day / sweep.
+      ctx.waitUntil(
+        runTmCron(env, new Date(controller.scheduledTime))
+          .then((r) => console.log(JSON.stringify({ tm_comps_cron: r.status, kind: r.kind, pull_id: r.pull_id })))
+          .catch((error) => console.error("tm comps", error)),
+      );
+      return;
+    }
     const step = stepForCron(controller.cron);
     if (!step) {
       console.error("no step for cron", controller.cron);
