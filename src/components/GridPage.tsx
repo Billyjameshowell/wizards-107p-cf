@@ -351,7 +351,7 @@ export function GridPage() {
                       {game.opponent}
                     </a>
                     <span className="block text-muted-foreground">{formatGameDate(game.date, game.weekday)}</span>
-                    <TmEventLink eventId={game.tmEventId} className="min-h-8" />
+                    <TmEventLink eventId={game.tmEventId} />
                   </th>
                   {grid.days.map((item) => {
                     const cell = game.cells[item];

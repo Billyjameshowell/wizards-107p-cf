@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, SearchIcon, XIcon } from "lucide-react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
-import { formatChance, formatGameDate } from "@shared/format";
-import { daysUntil, etYmd, formatDaysOut, LIST_FLOOR, marketDeltaPhrase, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
+import { formatGameDate } from "@shared/format";
+import { pairDecision, priceKindFor, saleChanceSentence } from "@shared/decision";
+import { daysUntil, etYmd, formatDaysOut, LIST_FLOOR, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
 import { SeatPrice } from "@/components/SeatPrice";
@@ -89,7 +90,13 @@ function headline(game: Game, status: ListingOverride, view: SeatPriceView, toda
   }
   if (game.date < todayEt) return { label: "Tip has passed", value: "—", unit: "not sold" };
   if (view.typeIn == null) return { label: "Ask", value: "—", unit: "no price yet" };
-  const label = status.listed ? "Listed at" : view.usingOwn ? "Your price" : "Ask";
+  const kind = priceKindFor({
+    listed: status.listed,
+    listedAsk: status.listed_ask,
+    typeIn: view.typeIn,
+    usingOwn: view.usingOwn,
+  });
+  const label = kind === "price" ? "Your price" : kind === "list" ? "Listed at" : "Ask";
   return { label, value: wholeDollars(view.typeIn), unit: "per seat" };
 }
 
@@ -120,29 +127,27 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
   const days = daysUntil(game.date, todayEt);
   const big = headline(game, status, view, todayEt);
   const past = game.date < todayEt;
-  const chance = view.suggestion?.saleChance;
+  const open = !status.sold && !past;
+  const decision = open
+    ? pairDecision({
+        ours: view.typeIn,
+        kind: priceKindFor({
+          listed: status.listed,
+          listedAsk: status.listed_ask,
+          typeIn: view.typeIn,
+          usingOwn: view.usingOwn,
+        }),
+        cheapest: game.cheapest_107,
+        sectionCount: game.model_section_count,
+        neighborCount: game.model_neighbor_count,
+      })
+    : null;
+  const chance = open && view.suggestion?.saleChance != null ? saleChanceSentence(view.suggestion.saleChance) : null;
   const similar = view.suggestion?.listedMedian;
-  const secondary = [
-    !status.sold && !past && chance != null ? `${formatChance(chance)} chance to sell` : null,
-    !status.sold && similar != null ? `similar seats ${wholeDollars(similar)}` : null,
-  ].filter(Boolean);
   const tm = tmLine(game);
-  const ours = status.listed && status.listed_ask != null && status.listed_ask > 0 ? status.listed_ask : view.suggestion?.typeIn ?? null;
-  const delta = game.cheapest_107 != null && ours != null ? Math.round(ours - game.cheapest_107) : null;
-  const compLine =
-    game.model_section_count == null || (game.model_section_count === 0 && !game.model_neighbor_count)
-      ? null
-      : [
-          game.model_section_count === 1 ? "1 pair in 107" : `${game.model_section_count} pairs in 107`,
-          game.model_neighbor_count ? `${game.model_neighbor_count} next door` : null,
-          delta != null ? `${status.listed ? "List is" : "Ask is"} ${marketDeltaPhrase(delta)}` : null,
-          game.model_all_in != null ? `buyers about ${money(game.model_all_in)}` : null,
-        ]
-          .filter(Boolean)
-          .join(" · ");
 
   return (
-    <Card className="gap-4 px-4 py-4">
+    <Card className="gap-4 px-4 py-4 [contain-intrinsic-size:auto_18rem] [content-visibility:auto]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-base font-semibold leading-snug text-navy">
@@ -155,41 +160,43 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
             {days != null && days >= 0 ? ` · ${formatDaysOut(days)}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end">
-          <StatusBadge status={status} />
-          <TmEventLink eventId={game.tm_event_id} />
-        </div>
+        <StatusBadge status={status} />
       </div>
 
-      <div>
+      <div className="flex flex-col gap-2">
         <BigNumber label={big.label} value={big.value} unit={big.unit} />
-        {secondary.length ? <p className="mt-1 text-sm text-muted-foreground first-letter:uppercase">{secondary.join(" · ")}</p> : null}
-        {compLine ? <p className="mt-1 text-sm text-navy first-letter:uppercase">{compLine}</p> : null}
-        <p className="mt-1 text-sm text-muted-foreground">Floor {money(LIST_FLOOR)}, separate from the ask</p>
+        {chance ? <p className="text-sm text-muted-foreground">{chance}</p> : null}
+        {decision ? (
+          <div className="flex flex-col gap-1 text-sm leading-snug">
+            {decision.gap ? <p>{decision.gap}</p> : null}
+            {decision.board ? <p>{decision.board}</p> : null}
+            <p>{decision.buyer}</p>
+            {decision.floor ? <p className="text-muted-foreground">{decision.floor}</p> : null}
+          </div>
+        ) : null}
       </div>
 
-      <Collapsible className="group/details border-t pt-3">
-        <div className="flex items-center justify-between gap-3">
-          {status.sold || past ? (
-            <span />
-          ) : (
-            <SitSellToggle className="w-36" value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} />
-          )}
-          <CollapsibleTrigger className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-navy">
+      <Collapsible className="group/details flex flex-col gap-3 border-t pt-3">
+        {open ? <SitSellToggle value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} /> : null}
+        <div className="flex items-center gap-2">
+          <TmEventLink eventId={game.tm_event_id} className="min-w-0 flex-1" />
+          <CollapsibleTrigger className="inline-flex min-h-11 shrink-0 items-center gap-1 px-1 text-sm font-medium text-navy">
             Details
             <ChevronDownIcon aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-data-[state=open]/details:rotate-180" />
           </CollapsibleTrigger>
         </div>
         <CollapsibleContent>
-          <div className="space-y-4 pt-3">
-            {status.sold || past ? null : (
+          <div className="flex flex-col gap-4">
+            {open ? (
               <SeatPrice opponent={game.opponent} view={view} onTypeIn={on.onTypeIn} onClear={on.onClearPrice} />
-            )}
+            ) : null}
             <dl className="grid grid-cols-2 gap-3">
+              <Fact label="Cheapest pair in 107" value={game.cheapest_107 != null ? wholeDollars(game.cheapest_107) : "—"} />
+              <Fact label="Similar seats" value={similar != null ? wholeDollars(similar) : "—"} />
               <Fact label="Cheapest in arena" value={money(prices.getIn)} />
               <Fact label={prices.centralKind === "mean" ? "Arena average" : "Arena median"} value={money(prices.central)} />
               {tm ? <Fact label="Ticketmaster suggests" value={tm} /> : null}
-              <Fact label="Your floor" value={`${money(LIST_FLOOR)} · not in the ask`} />
+              <Fact label="Your floor" value={`${money(LIST_FLOOR)}, not in the ask`} />
               {game.model_low != null && game.model_high != null ? (
                 <Fact label="Ask range" value={`${wholeDollars(game.model_low)}–${wholeDollars(game.model_high)}`} />
               ) : null}
@@ -453,12 +460,13 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
       <HowThisWorks>
         <p>
           The ask is the per-seat number to type into Account Manager, the same one Trends and the grid show. It follows
-          pairs in section 107, and the seats next door only when 107 is thin. You keep 95% of it. The $75 floor is
-          shown beside the ask and is not added into it. A number you type stays put until you clear it.
+          pairs in section 107, and sections 108, 118 and 119 only when 107 is thin. You keep 95% of it. The card says
+          how that price sits against the cheapest pair in section 107, and what buyers would see on Ticketmaster. The
+          $75 floor is not added into the ask. A number you type stays put until you clear it.
         </p>
         <p>
-          Similar seats means pairs or more in sections 107, 108, 118 and 119, rows J to T. Sit or Sell, Listed and Sold
-          only change this book on this device.
+          Similar seats, under Details, are pairs in sections 107, 108, 118 and 119, rows J to T. Sit or Sell, Listed
+          and Sold only change this book on this device.
         </p>
       </HowThisWorks>
       <Card className="mt-3 gap-0 px-4 py-1">
