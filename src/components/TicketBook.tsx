@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, SearchIcon, XIcon } from "lucide-react";
 import type { Book, FilterId, Game, ListingOverride, ListingStatusMap } from "@shared/book";
-import { formatGameDate } from "@shared/format";
-import { pairDecision, priceKindFor, saleChanceSentence } from "@shared/decision";
+import { pairDecision, priceKindFor } from "@shared/decision";
+import { formatChance, formatGameDate } from "@shared/format";
 import { daysUntil, etYmd, formatDaysOut, LIST_FLOOR, seatPriceForGame, type SeatPriceView } from "@shared/pricing";
 import { latestOf } from "@shared/freshness";
 import { soldKeepTotalOf, startingTypeIn } from "@shared/book-pricing";
@@ -142,7 +142,10 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
         neighborCount: game.model_neighbor_count,
       })
     : null;
-  const chance = open && view.suggestion?.saleChance != null ? saleChanceSentence(view.suggestion.saleChance) : null;
+  const chanceLabel =
+    open && view.suggestion?.saleChance != null
+      ? `${formatChance(view.suggestion.saleChance)} chance it sells before tip`
+      : null;
   const similar = view.suggestion?.listedMedian;
   const tm = tmLine(game);
 
@@ -165,19 +168,10 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
 
       <div className="flex flex-col gap-2">
         <BigNumber label={big.label} value={big.value} unit={big.unit} />
-        {chance ? <p className="text-sm text-muted-foreground">{chance}</p> : null}
-        {decision ? (
-          <div className="flex flex-col gap-1 text-sm leading-snug">
-            {decision.gap ? <p>{decision.gap}</p> : null}
-            {decision.board ? <p>{decision.board}</p> : null}
-            <p>{decision.buyer}</p>
-            {decision.floor ? <p className="text-muted-foreground">{decision.floor}</p> : null}
-          </div>
-        ) : null}
+        {chanceLabel ? <p className="text-sm text-muted-foreground">{chanceLabel}</p> : null}
       </div>
 
       <Collapsible className="group/details flex flex-col gap-3 border-t pt-3">
-        {open ? <SitSellToggle value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} /> : null}
         <div className="flex items-center gap-2">
           <TmEventLink eventId={game.tm_event_id} className="min-w-0 flex-1" />
           <CollapsibleTrigger className="inline-flex min-h-11 shrink-0 items-center gap-1 px-1 text-sm font-medium text-navy">
@@ -187,6 +181,15 @@ function GameCard({ game, status, view, todayEt, ...on }: Row & RowHandlers & { 
         </div>
         <CollapsibleContent>
           <div className="flex flex-col gap-4">
+            {open ? <SitSellToggle value={game.sit_or_sell} opponent={game.opponent} onChange={on.onDecision} /> : null}
+            {decision ? (
+              <div className="flex flex-col gap-1 text-sm leading-snug">
+                {decision.gap ? <p>{decision.gap}</p> : null}
+                {decision.board ? <p>{decision.board}</p> : null}
+                <p>{decision.buyer}</p>
+                {decision.floor ? <p className="text-muted-foreground">{decision.floor}</p> : null}
+              </div>
+            ) : null}
             {open ? (
               <SeatPrice opponent={game.opponent} view={view} onTypeIn={on.onTypeIn} onClear={on.onClearPrice} />
             ) : null}
@@ -238,6 +241,10 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
   const [copyLabel, setCopyLabel] = useState("Copy status");
   const [sort, setSort] = useState<GameSort>(DEFAULT_GAME_SORT);
   const todayEt = useMemo(() => etYmd(new Date()), []);
+
+  useEffect(() => {
+    document.title = "Ticket book · Wizards 107P";
+  }, []);
 
   const games = useMemo(() => [...book.games].sort((a, b) => a.date.localeCompare(b.date)), [book.games]);
 
@@ -460,9 +467,9 @@ export function TicketBook({ book, repoStatus }: { book: Book; repoStatus: Listi
       <HowThisWorks>
         <p>
           The ask is the per-seat number to type into Account Manager, the same one Trends and the grid show. It follows
-          pairs in section 107, and sections 108, 118 and 119 only when 107 is thin. You keep 95% of it. The card says
-          how that price sits against the cheapest pair in section 107, and what buyers would see on Ticketmaster. The
-          $75 floor is not added into the ask. A number you type stays put until you clear it.
+          pairs in section 107, and sections 108, 118 and 119 only when 107 is thin. You keep 95% of it. Under Details,
+          the card says how that price sits against the cheapest pair in section 107, and what buyers would see on
+          Ticketmaster. The $75 floor is not added into the ask. A number you type stays put until you clear it.
         </p>
         <p>
           Similar seats, under Details, are pairs in sections 107, 108, 118 and 119, rows J to T. Sit or Sell, Listed
