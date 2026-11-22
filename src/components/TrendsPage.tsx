@@ -154,6 +154,23 @@ function dateLine(game: TrendsGame, withTime = false): string {
     .join(" · ");
 }
 
+/** The line under a card's big number. A piece, and the dot between them, only shows when it is known. */
+function footerLine(chance: number | null, change7d: number | null) {
+  const week = typeof change7d === "number" && Number.isFinite(change7d) ? change7d : null;
+  if (chance == null && week == null) return null;
+  return (
+    <p className="mt-3 flex flex-wrap gap-x-1.5 text-sm text-muted-foreground">
+      {chance != null ? <span>{formatChance(chance)} chance to sell{week != null ? " ·" : ""}</span> : null}
+      {week != null ? (
+        <>
+          <Change value={week} />
+          <span>this week</span>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 function SeasonCard({ outlook }: { outlook: SeasonOutlook }) {
   return (
     <Card className="gap-3 px-4 py-4">
@@ -193,11 +210,7 @@ function GameCard({ game, outlook, scenario }: { game: TrendsGame; outlook: Seas
           <BigNumber label={big.label} value={big.value} unit={big.unit} />
           <Sparkline values={game.series.map((point) => point.median)} label={`${game.opponent} similar-seat prices, ${game.checks} checks`} />
         </div>
-        <p className="mt-3 flex flex-wrap gap-x-1.5 text-sm text-muted-foreground">
-          {big.chance != null ? <span>{formatChance(big.chance)} chance to sell ·</span> : null}
-          <Change value={game.change7d} />
-          <span>this week</span>
-        </p>
+        {footerLine(big.chance, game.change7d)}
         {compLine ? <p className="mt-1 text-sm text-navy first-letter:uppercase">{compLine}</p> : null}
       </a>
     </Card>
