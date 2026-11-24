@@ -48,6 +48,15 @@ curl -H "Authorization: Bearer change-me-local-only" http://localhost:5173/api/c
 curl "http://localhost:5173/cdn-cgi/local/scheduled"
 ```
 
+## Auto-deploy (Workers Builds)
+
+Every merge to `main` builds and deploys this Worker through Cloudflare Workers Builds, connected in the dashboard under **Workers & Pages > wizards-107p-cf > Settings > Builds**. No one needs a wrangler login.
+
+- Production branch: `main`. Build command: `npm run build`. Deploy command: `npx wrangler deploy`. Root directory: `/`.
+- `wrangler.jsonc` is the source of truth for vars, crons, bindings, routes and observability. It matches the live Worker. `keep_vars: true` keeps any var that exists only in the dashboard. Secrets are never in this file and a deploy keeps them.
+- D1 migrations are not run by the build. Apply them by hand before merging code that needs them.
+- `run_worker_first` lists every path the Worker serves (`/api/*`, `/admin`, `/admin/*`). Add new non-`/api` Worker paths there, or the SPA fallback will answer them with `index.html`.
+
 ## Deploy
 
 1. Create storage (once per account; already done for production):

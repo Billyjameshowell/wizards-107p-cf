@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 import { freshness, type FreshTone } from "@shared/freshness";
-import { ticketmasterEventUrl } from "@shared/ticketmaster";
+import { MANAGE_TICKETS_LABEL, MONUMENTAL_MY_EVENTS_URL, ticketmasterEventUrl } from "@shared/ticketmaster";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -63,6 +63,9 @@ export function PageShell({
           )}
         </div>
       </nav>
+      <div className="min-w-0 pt-1">
+        <ManageTicketsLink />
+      </div>
       <header className="mt-4 mb-6">
         <h1 className="text-xl font-semibold leading-tight text-navy sm:text-2xl">{title}</h1>
         {subtitle || updatedAt !== undefined ? (
@@ -201,15 +204,30 @@ export function HowThisWorks({ children }: { children: ReactNode }) {
   );
 }
 
-/** Opens that game's Ticketmaster event page in a new tab. */
+/**
+ * Monumental Account Manager. One link for every game: Billy's own listings.
+ * Sits under the site nav so it stays on screen on the book, including a 390px phone.
+ */
+export function ManageTicketsLink({ className }: { className?: string }) {
+  return (
+    <Button className={cn("h-11 w-full sm:w-auto", className)} asChild>
+      <a href={MONUMENTAL_MY_EVENTS_URL} target="_blank" rel="noopener noreferrer">
+        <ExternalLinkIcon data-icon="inline-start" />
+        {MANAGE_TICKETS_LABEL}
+      </a>
+    </Button>
+  );
+}
+
+/** Opens that game's Ticketmaster event page so Billy can compare buyer prices. */
 export function TmEventLink({ eventId, className }: { eventId?: string | null; className?: string }) {
   const href = ticketmasterEventUrl(eventId);
   if (!href) return null;
   return (
     <Button variant="outline" className={cn("min-h-11 bg-card", className)} asChild>
-      <a href={href} target="_blank" rel="noopener noreferrer">
+      <a href={href} target="_blank" rel="noopener noreferrer" title="Compare prices on the Ticketmaster event page">
         <ExternalLinkIcon data-icon="inline-start" />
-        Ticketmaster
+        Compare prices
       </a>
     </Button>
   );

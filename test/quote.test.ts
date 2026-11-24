@@ -9,7 +9,7 @@ import {
   type QuoteListing,
 } from "@shared/quote";
 import type { MarketRow } from "@shared/price-model";
-import { applyTicketmasterIds, ticketmasterEventUrl } from "@shared/ticketmaster";
+import { applyTicketmasterIds, MANAGE_TICKETS_LABEL, MONUMENTAL_MY_EVENTS_URL, ticketmasterEventUrl } from "@shared/ticketmaster";
 import seed from "../data/seed-book.json";
 
 const ALL_IN = 1.23;
@@ -263,6 +263,16 @@ describe("known misses", () => {
 });
 
 describe("ticketmaster ids", () => {
+  it("sends listing management to Monumental My Events and keeps buyer event pages", () => {
+    expect(MONUMENTAL_MY_EVENTS_URL).toBe("https://am.ticketmaster.com/monumental/my-events");
+    expect(MANAGE_TICKETS_LABEL).toBe("Manage tickets (My Events)");
+    expect(ticketmasterEventUrl("15006505D811A19F")).toBe(
+      "https://www.ticketmaster.com/event/15006505D811A19F",
+    );
+    expect(ticketmasterEventUrl("  ")).toBeNull();
+    expect(ticketmasterEventUrl(null)).toBeNull();
+  });
+
   it("builds the canonical event url and fills a live book from the seed", () => {
     const book = seed as { games: { date: string; tm_event_id?: string }[] };
     expect(book.games).toHaveLength(43);
