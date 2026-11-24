@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   finalizeAttempt,
   insertComps,
@@ -74,6 +74,10 @@ beforeEach(() => {
   db = new DatabaseSync(":memory:");
   db.exec(readFileSync(new URL("../migrations/0011_tm_comps.sql", import.meta.url), "utf8"));
   env = { DB: d1(db), APIFY_TOKEN: "test-token", CRON_SECRET: "test-secret", TM_COMPS_ENABLED: "true" } as unknown as Env;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const runsTable = () => db.prepare("SELECT * FROM tm_runs ORDER BY id").all() as Record<string, unknown>[];
@@ -158,6 +162,9 @@ describe("start -> webhook -> validate -> retry -> D1", () => {
     db.prepare(`INSERT INTO tm_runs (pull_id, kind, run_id, attempt, event_id, status, raw_listings, et_date, started_at) VALUES ('old','full','old',1,?, 'ok', 140, '2026-10-29', '2026-10-29T14:00:00Z')`).run(atlanta.event_id);
     const apify = fakeApify({ datasets: [challenge, small, fixture] });
     const now = new Date("2026-10-30T14:00:00Z");
+    // The webhook uses the current time to decide whether the game can still be retried.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
     const r = await startPull(env, "full", now, apify.f, { events: [atlanta] });
     expect(r.status).toBe("started");
     const start = apify.calls.find((c) => c.method === "POST")!;
