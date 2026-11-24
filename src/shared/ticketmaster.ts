@@ -1,7 +1,15 @@
 /**
  * Ticketmaster event pages. Ids live on each game (`tm_event_id` in the book),
  * not in the components that render the link.
+ *
+ * Buyer-side event pages stay on www.ticketmaster.com so Billy can compare
+ * prices. Managing his own listings is one Account Manager page.
  */
+
+/** Monumental Ticketmaster Account Manager: Billy's listings, all events. */
+export const MONUMENTAL_MY_EVENTS_URL = "https://am.ticketmaster.com/monumental/my-events";
+
+export const MANAGE_TICKETS_LABEL = "Manage tickets (My Events)";
 
 export function ticketmasterEventUrl(eventId: string | null | undefined): string | null {
   const id = eventId?.trim();
