@@ -37,7 +37,7 @@ export function PageShell({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("mx-auto px-4 pb-16", wide ? "max-w-[1400px]" : "max-w-5xl")}>
+    <div id="main" className={cn("mx-auto px-4 pb-16", wide ? "max-w-[1400px]" : "max-w-5xl")}>
       <nav aria-label="Site" className="flex h-14 items-center justify-between gap-3">
         <a href="/" className="text-base font-semibold text-navy">
           Wizards 107P
@@ -236,7 +236,7 @@ export function TmEventLink({ eventId, className }: { eventId?: string | null; c
 /** Centered message for loading, errors and missing pages. */
 export function Message({ title, body, link }: { title: string; body?: string; link?: { href: string; label: string } }) {
   return (
-    <div className="mx-auto max-w-xl px-4 py-16 text-center">
+    <div id="main" className="mx-auto max-w-xl px-4 py-16 text-center">
       <h1 className="text-xl font-semibold text-navy">{title}</h1>
       {body ? <p className="mt-2 text-sm text-muted-foreground">{body}</p> : null}
       {link ? (

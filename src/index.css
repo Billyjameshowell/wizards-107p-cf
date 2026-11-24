@@ -132,3 +132,18 @@
     @apply font-sans;
     }
 }
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: 0;
+  z-index: 50;
+  padding: 0.5rem 0.75rem;
+  background: var(--background);
+  color: var(--foreground);
+  transform: translateY(-120%);
+}
+
+.skip-link:focus {
+  transform: none;
+}

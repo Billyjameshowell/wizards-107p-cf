@@ -1,0 +1,14 @@
+{
+  // Preview-only Worker. Do not rename this to wizards-107p-cf.
+  // Production (wizards.billycommandcenter.com) is a different Worker and must stay untouched.
+  "name": "wizards-107p-preview",
+  "main": "worker/preview.ts",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/admin"]
+  }
+}
