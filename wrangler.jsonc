@@ -14,10 +14,14 @@
 	"routes": [{ "pattern": "wizards.billycommandcenter.com", "custom_domain": true }],
 	"assets": {
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/api/*", "/admin"]
+		"run_worker_first": ["/api/*", "/admin", "/admin/*"]
 	},
+	// Matches the live dashboard settings so an auto-deploy does not reset log retention.
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"head_sampling_rate": 1,
+		"logs": { "enabled": true, "head_sampling_rate": 1, "persist": true, "invocation_logs": true },
+		"traces": { "enabled": false }
 	},
 	"upload_source_maps": true,
 	"triggers": {
@@ -27,6 +31,8 @@
 		// pull, :30 sweeps. TM_COMPS_ENABLED=false turns it off without a redeploy of crons.
 		"crons": ["0 12 * * *", "10 12 * * *", "20 12 * * *", "30 12 * * *", "0,30 14,15,21,22,23 * * *"]
 	},
+	// Keep any var set only in the dashboard. Vars below still win, and they match live today.
+	"keep_vars": true,
 	"vars": {
 		"INGEST_ENABLED": "true",
 		"DRY_RUN": "false",
